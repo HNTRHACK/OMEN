@@ -175,6 +175,16 @@ details summary { cursor: pointer; margin-top: 8px; color: var(--teal); }
 .ad-card h3 { margin: 2px 0 4px; font-size: 22px; }
 .ad-kicker { margin: 0; font-family: var(--display); font-weight: 800; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .ad-preview { width: 100%; height: auto; border: 2.5px solid var(--ink); border-radius: 8px; }
+.slots { display: inline-block; margin: 2px 0 8px; padding: 3px 10px; border: 2px solid var(--ink); border-radius: 999px; background: #e3f1e6; font-size: 14px; }
+.slots.full { background: #f6dcd5; }
+.campaigns li { align-items: flex-start; }
+.campaigns .stats { display: block; margin-top: 3px; }
+.campaigns .stats b { font-variant-numeric: tabular-nums; }
+.cstatus { font-weight: 700; }
+.cstatus.live { color: #2f7a4b; }
+.cstatus.rejected, .cstatus.removed { color: #a3402f; }
+#ad-f fieldset label { display: block; }
+#ad-f input[name=link]:disabled { opacity: .45; }
 details summary { font-family: var(--display); font-weight: 800; }
 
 /* ---------- Alfred: conversation + quests ---------- */

@@ -92,16 +92,16 @@ test("forum: rate limits, reports hide after 3 people, mutes", () => {
 test("images: only real PNG/JPEG bytes; SVG and disguised files refused", () => {
   assert.equal(sniff(Buffer.from(png().split(",")[1], "base64")).type, "image/png");
   const { community } = world();
-  const ad = (image) => community.submitAd(A, "Asha", { boardId: "board-plaza", title: "Chai", days: 1, image });
+  const ad = (image) => community.submitAd(A, "Asha", { brand: "Asha Co", boardId: "board-plaza", title: "Chai", days: 1, image });
   assert.throws(() => ad("data:image/svg+xml;base64," + Buffer.from("<svg onload=alert(1)>").toString("base64")), { code: "bad_image" });
   assert.throws(() => ad("data:image/png;base64," + Buffer.from("<html><script>").toString("base64")), { code: "bad_image" }, "claims PNG, isn't");
   assert.throws(() => ad(png(9000, 100)), { code: "bad_size" });
-  assert.throws(() => community.submitAd(A, "Asha", { boardId: "board-plaza", title: "Chai", days: 1, link: "http://evil.example" }), { code: "bad_link" });
+  assert.throws(() => community.submitAd(A, "Asha", { brand: "Asha Co", boardId: "board-plaza", title: "Chai", days: 1, link: "http://evil.example" }), { code: "bad_link" });
 });
 
 test("ads: pending → approved → live for everyone → expires", () => {
   const { community, clock, sent } = world();
-  const ad = community.submitAd(A, "Asha", { boardId: "board-plaza", title: "Asha's Spices", text: "Cardamom at the Lantern stall", days: 1, link: "https://example.com/spices", image: png() });
+  const ad = community.submitAd(A, "Asha", { brand: "Asha Co", boardId: "board-plaza", title: "Asha's Spices", text: "Cardamom at the Lantern stall", days: 1, link: "https://example.com/spices", image: png() });
   assert.equal(ad.status, "pending");
   assert.equal(community.liveAds().length, 0, "nothing shows before review");
   assert.throws(() => community.moderate({ action: "approve", id: "nope" }), { code: "not_pending" });
@@ -117,7 +117,7 @@ test("ads: pending → approved → live for everyone → expires", () => {
 
 test("ads: 3-day ads go live only after the rental is paid (DEMO here)", async () => {
   const { community, payments } = world();
-  const ad = community.submitAd(B, "Ravi", { boardId: "board-well", title: "Ravi's Teas", days: 3 });
+  const ad = community.submitAd(B, "Ravi", { brand: "Ravi Co", boardId: "board-well", title: "Ravi's Teas", days: 3 });
   community.moderate({ action: "approve", id: ad.id });
   assert.equal(community.myAds(B)[0].status, "awaiting_rent");
   assert.equal(community.liveAds().length, 0);

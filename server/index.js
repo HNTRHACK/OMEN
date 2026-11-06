@@ -34,6 +34,14 @@ export function toCsv(rows) {
 
 export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys(), market = createMarket(), commerce = null, community = null, alfred = null }) {
   const name = (b) => String(b?.name || "").slice(0, 16);
+  /** The caller's player id if they sent a valid guest token, else null (moderator-only pages send none). */
+  const optionalPlayer = (req) => {
+    try {
+      return playerFromRequest(req) || null;
+    } catch {
+      return null;
+    }
+  };
   const modOnly = (req) => {
     if (!isModerator(req)) throw new ApiError(403, "not_moderator", "Moderators only.");
   };
@@ -91,11 +99,14 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
           ["POST", /^\/api\/forum\/([\w-]{36})\/reply$/, async ([id], b, req) => community.reply(playerFromRequest(req), name(b), id, b)],
           ["POST", /^\/api\/report$/, async (_, b, req) => community.report(playerFromRequest(req), b)],
           ["GET", /^\/api\/ads$/, async () => ({ ads: community.liveAds() })],
+          ["GET", /^\/api\/ads\/boards$/, async () => ({ boards: community.boards() })],
+          ["POST", /^\/api\/ads\/([\w-]{36})\/seen$/, async ([id], b, req) => community.recordView(playerFromRequest(req), id)],
+          ["POST", /^\/api\/ads\/([\w-]{36})\/click$/, async ([id], b, req) => community.recordClick(playerFromRequest(req), id, b.kind)],
           ["GET", /^\/api\/ads\/mine$/, async (_, b, req) => ({ ads: community.myAds(playerFromRequest(req)) })],
           ["POST", /^\/api\/ads$/, async (_, b, req) => community.submitAd(playerFromRequest(req), name(b), b), { maxBody: 1_048_576 }],
           ["POST", /^\/api\/ads\/([\w-]{36})\/rent$/, async ([id], b, req) => community.payRent(playerFromRequest(req), id, b)],
           ["GET", /^\/api\/mod\/queue$/, async (_, b, req) => (modOnly(req), community.modQueue())],
-          ["POST", /^\/api\/mod$/, async (_, b, req) => (modOnly(req), community.moderate(b))],
+          ["POST", /^\/api\/mod$/, async (_, b, req) => (modOnly(req), community.moderate(b, { actor: optionalPlayer(req) }))],
         ]
       : []),
     // Alfred, the advisor NPC
@@ -229,7 +240,17 @@ export function createGateway({ onChange = () => {}, notify = { player() {}, all
     quoteTtlMs: config.quoteTtlMs,
   });
   commerce = createCommerce({ dir: config.dataDir, payments: service, notify });
-  community = createCommunity({ dir: config.dataDir, payments: service, notify });
+  community = createCommunity({
+    dir: config.dataDir,
+    payments: service,
+    notify,
+    // Ads may point at a stall: look it up live, so a closed stall stops being linked.
+    shopLookup: (id) => {
+      const l = commerce.list();
+      const s = l.plots.find((p) => p.shop?.id === id)?.shop || l.npc.find((n) => n.id === id);
+      return s ? { id: s.id, name: s.name, owner: s.owner || null } : null;
+    },
+  });
   setInterval(() => (commerce.sweep(), community.sweep()), 30_000).unref();
   const publicConfig = () => ({
     whitechain: { ...WHITECHAIN, rpc: undefined },

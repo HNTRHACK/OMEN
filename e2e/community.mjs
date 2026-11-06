@@ -27,12 +27,14 @@ await A.page.keyboard.press("e");
 await A.page.waitForSelector("#ad-f", { state: "attached" });
 await A.page.evaluate(() => (document.querySelector("#ad-f").closest("details").open = true)); // collapsed when the board already shows an ad
 await A.page.setInputFiles("#ad-f [name=file]", IMAGE);
+await A.page.fill("#ad-f [name=brand]", "Asha's Spices");
 await A.page.fill("#ad-f [name=title]", "Asha's Spice Cart");
 await A.page.fill("#ad-f [name=text]", "Chai masala at the Lantern stall · 45 each");
+await A.page.check("#ad-f [name=dest][value=link]");
 await A.page.fill("#ad-f [name=link]", "https://example.com/spices");
 await A.page.waitForTimeout(800); // image resize + preview
 if (shots) await A.page.screenshot({ path: `${shots}/ad-form.png` }).catch(() => {});
-await A.page.click("#ad-f button.btn");
+await A.page.click("#ad-f [data-submit]");
 const submitted = await A.page.waitForSelector("#forum .ok", { timeout: 20000 }).then(() => true, () => false);
 const beforeApproval = await B.page.evaluate((id) => window.__omen.community.boards.find((b) => b.id === id).shown, board);
 

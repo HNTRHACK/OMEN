@@ -8,7 +8,7 @@ import { ApiError } from "./payments.js";
 import { moderateText, safeUrl, rateLimiter, REPORT_HIDE } from "./moderation.js";
 import { checkImage, storeImage } from "./images.js";
 import { clean } from "./commerce.js";
-import { boardById, AD_DAYS, AD_RENT_PAISE_PER_DAY } from "../shared/billboards.js";
+import { BOARDS, boardById, SLOTS_PER_BOARD, AD_DAYS, AD_RENT_PAISE_PER_DAY } from "../shared/billboards.js";
 import { directMerchantId } from "../shared/merchants.js";
 
 export const CATS = { general: "General", market: "Marketplace", help: "Help & advice" };
@@ -18,8 +18,11 @@ const need = (id) => {
   return id;
 };
 const DAY = 86_400_000;
+const VIEW_GAP = 5 * 60_000; // one impression per viewer per ad per 5 minutes
+const CLICK_GAP = 30_000;
+const MAX_TRACKED = 5000; // unique viewers/clickers remembered per ad
 
-export function createCommunity({ dir = null, payments = null, notify = { all() {}, player() {} }, now = () => Date.now(), billboardPayout = process.env.BILLBOARD_PAYOUT || "" } = {}) {
+export function createCommunity({ dir = null, payments = null, notify = { all() {}, player() {} }, now = () => Date.now(), shopLookup = () => null, billboardPayout = process.env.BILLBOARD_PAYOUT || "" } = {}) {
   const threads = new Collection(dir, "threads");
   const posts = new Collection(dir, "posts");
   const ads = new Collection(dir, "ads");
@@ -29,6 +32,8 @@ export function createCommunity({ dir = null, payments = null, notify = { all() 
   const postRate = rateLimiter(8, 4);
   const adRate = rateLimiter(2, 2);
   const reportRate = rateLimiter(20, 10);
+  const seenRate = rateLimiter(90, 40);
+  const seenAt = new Map(); // "adId:playerId:kind" -> last counted time (memory only; bounded)
 
   const muted = (id) => !!mutes.get(id);
   function speaker(id) {
@@ -108,33 +113,99 @@ export function createCommunity({ dir = null, payments = null, notify = { all() 
   }
 
   // ---------------------------------------------------------------- billboard ads
-  const pubAd = (a) => ({ id: a.id, boardId: a.boardId, title: a.title, text: a.text, link: a.link, image: a.image ? `/uploads/${a.image}` : null, authorName: a.authorName, status: a.status, days: a.days, expiresAt: a.expiresAt, rented: !!a.rentPaymentId });
+  const pubAd = (a) => {
+    const shop = a.shopId ? shopLookup(a.shopId) : null;
+    return {
+      id: a.id,
+      boardId: a.boardId,
+      brand: a.brand || a.authorName,
+      title: a.title,
+      text: a.text,
+      link: a.link || null,
+      shop: shop ? { id: shop.id, name: shop.name } : null,
+      image: a.image ? `/uploads/${a.image}` : null,
+      authorName: a.authorName,
+      status: a.status,
+      reason: a.reason || null,
+      days: a.days,
+      expiresAt: a.expiresAt || null,
+      rented: !!a.rentPaymentId,
+    };
+  };
+  /** What the advertiser (and moderators) see: the public card plus real, deduplicated counters. */
+  const withStats = (a) => {
+    const st = a.stats || { impressions: 0, clicks: 0, viewers: [], clickers: [] };
+    return {
+      ...pubAd(a),
+      createdAt: a.createdAt,
+      approvedAt: a.approvedAt || null,
+      endedAt: a.endedAt || null,
+      stats: { impressions: st.impressions, uniqueViewers: st.viewers.length, clicks: st.clicks, uniqueClickers: st.clickers.length, ctr: st.viewers.length ? Math.min(100, Math.round((st.clickers.length / st.viewers.length) * 1000) / 10) : 0 }, // % of unique viewers who clicked
+    };
+  };
   const isLive = (a) => a.status === "live" && !a.hidden && a.expiresAt > now();
   function liveAds() {
     return ads.where(isLive).sort((a, b) => b.approvedAt - a.approvedAt).map(pubAd);
   }
+  const booked = (boardId) => ads.where((a) => a.boardId === boardId && ((a.status === "live" && a.expiresAt > now()) || a.status === "awaiting_rent")).length;
+  /** Every hoarding with how many of its slots are taken, so players can claim a free one. */
+  function boards() {
+    return BOARDS.map((b) => {
+      const holders = ads.where((a) => a.boardId === b.id && a.status === "live" && a.expiresAt > now());
+      const taken = booked(b.id);
+      return {
+        id: b.id,
+        label: b.label,
+        slots: SLOTS_PER_BOARD,
+        free: Math.max(0, SLOTS_PER_BOARD - taken),
+        waiting: ads.where((a) => a.boardId === b.id && a.status === "pending").length,
+        nextFreeAt: taken >= SLOTS_PER_BOARD && holders.length ? Math.min(...holders.map((a) => a.expiresAt)) : null,
+      };
+    });
+  }
+  function resolveDestination(playerId, b) {
+    const hasLink = !!(b.link && String(b.link).trim());
+    const hasShop = !!(b.shopId && String(b.shopId).trim());
+    if (hasLink && hasShop) throw bad("one_destination", "Pick one destination: your stall or a link, not both.");
+    if (hasShop) {
+      const shop = /^[\w-]{1,40}$/.test(String(b.shopId)) ? shopLookup(String(b.shopId)) : null;
+      if (!shop || shop.owner !== playerId) throw bad("bad_shop", "You can only point an ad at a stall you run.");
+      return { shopId: shop.id, link: null };
+    }
+    if (hasLink) {
+      const link = safeUrl(b.link);
+      if (!link) throw bad("bad_link", "Links must be plain https:// addresses.");
+      return { shopId: null, link };
+    }
+    return { shopId: null, link: null };
+  }
   function submitAd(playerId, name, b) {
     speaker(playerId);
-    if (!boardById(b.boardId)) throw bad("bad_board", "Pick a billboard.");
+    const board = boardById(b.boardId);
+    if (!board) throw bad("bad_board", "Pick a billboard.");
     const days = Number(b.days);
     if (!AD_DAYS.includes(days)) throw bad("bad_days", "Ads run for 1, 3 or 7 days.");
-    let link = null;
-    if (b.link) {
-      link = safeUrl(b.link);
-      if (!link) throw bad("bad_link", "Links must be plain https:// addresses.");
-    }
+    const dest = resolveDestination(playerId, b);
+    const brand = text(b.brand, { max: 30, min: 2 });
     const title = text(b.title, { max: 40, min: 2 });
-    const body = text(b.text || "", { max: 90, min: 0 });
+    const body = text(b.text || "", { max: 160, min: 0 });
     const checked = b.image ? checkImage(b.image) : null; // validate everything before using any quota
     if (ads.where((a) => a.author === playerId && ["pending", "awaiting_rent"].includes(a.status)).length >= 2) throw bad("too_many", "You already have ads waiting for review.", 409);
+    if (booked(board.id) >= SLOTS_PER_BOARD) {
+      const free = boards().find((x) => x.id === board.id).nextFreeAt;
+      throw bad("board_full", `The ${board.label} is fully booked${free ? ` until ${new Date(free).toUTCString()}` : ""}. Pick another hoarding.`, 409);
+    }
+    if (ads.where((a) => a.boardId === board.id && a.status === "pending").length >= 6) throw bad("queue_full", "That hoarding has a long review queue. Try another one.", 409);
     if (!adRate(playerId, now())) throw bad("slow_down", "One ad at a time, please.", 429);
     const img = checked ? storeImage(uploads, checked) : null;
     const a = {
       id: randomUUID(),
-      boardId: b.boardId,
+      boardId: board.id,
+      brand,
       title,
       text: body,
-      link,
+      link: dest.link,
+      shopId: dest.shopId,
       image: img?.file || null,
       author: playerId,
       authorName: clean(name, 16) || "Courier",
@@ -142,13 +213,14 @@ export function createCommunity({ dir = null, payments = null, notify = { all() 
       status: "pending",
       reports: [],
       hidden: false,
+      stats: { impressions: 0, clicks: 0, viewers: [], clickers: [] },
       createdAt: now(),
     };
     ads.put(a);
     notify.all("mod:queue", { pending: ads.where((x) => x.status === "pending").length });
     return pubAd(a);
   }
-  const myAds = (playerId) => ads.where((a) => a.author === need(playerId)).sort((a, b) => b.createdAt - a.createdAt).map(pubAd);
+  const myAds = (playerId) => ads.where((a) => a.author === need(playerId)).sort((a, b) => b.createdAt - a.createdAt).map(withStats);
 
   function goLive(a) {
     a.status = "live";
@@ -183,16 +255,52 @@ export function createCommunity({ dir = null, payments = null, notify = { all() 
     let changed = false;
     for (const a of ads.where((x) => x.status === "live" && x.expiresAt <= now())) {
       a.status = "expired";
+      a.endedAt = a.expiresAt;
       ads.put(a);
       changed = true;
+    }
+    // An approved ad whose rental is never confirmed must not hold a slot forever.
+    for (const a of ads.where((x) => x.status === "awaiting_rent" && (x.decidedAt || x.createdAt) + 2 * DAY <= now())) {
+      a.status = "expired";
+      a.endedAt = now();
+      a.reason = "The rental wasn't confirmed within 48 hours.";
+      ads.put(a);
+      notify.player(a.author, "ad:update", pubAd(a));
     }
     if (changed) notify.all("ads:update", liveAds());
   }
 
+  // ---------------------------------------------------------------- real impressions and clicks
+  // Counted only for LIVE ads, only for signed-in players, never for the advertiser's own views, at
+  // most once per viewer per ad per 5 minutes (views) or 30 seconds (clicks). The browser reports a
+  // view after the hoarding has been on screen, facing the player, for 1.5 s.
+  function track(playerId, adId, kind) {
+    need(playerId);
+    if (!seenRate(playerId, now())) throw bad("slow_down", "Too many requests.", 429);
+    const a = ads.get(adId);
+    if (!a || !isLive(a)) return { counted: false, reason: "not_live" };
+    if (a.author === playerId) return { counted: false, reason: "own_ad" };
+    const key = `${adId}:${playerId}:${kind}`;
+    const t = now();
+    if (t - (seenAt.get(key) || 0) < (kind === "view" ? VIEW_GAP : CLICK_GAP)) return { counted: false, reason: "recent" };
+    if (seenAt.size > 100_000) seenAt.clear(); // bounded memory
+    seenAt.set(key, t);
+    const st = (a.stats ||= { impressions: 0, clicks: 0, viewers: [], clickers: [] });
+    const [counter, who] = kind === "view" ? ["impressions", "viewers"] : ["clicks", "clickers"];
+    st[counter]++;
+    if (!st[who].includes(playerId) && st[who].length < MAX_TRACKED) st[who].push(playerId);
+    ads.save();
+    return { counted: true };
+  }
+  const recordView = (playerId, adId) => track(playerId, adId, "view");
+  const recordClick = (playerId, adId, kind = "details") => track(playerId, adId, `click-${["details", "shop", "link"].includes(kind) ? kind : "details"}`);
+
   // ---------------------------------------------------------------- moderation
   function modQueue() {
     return {
-      pendingAds: ads.where((a) => a.status === "pending").map((a) => ({ ...pubAd(a), author: a.author })),
+      pendingAds: ads.where((a) => a.status === "pending").map((a) => ({ ...pubAd(a), author: a.author, board: boards().find((x) => x.id === a.boardId) })),
+      liveAds: ads.where((a) => a.status === "live" && a.expiresAt > now()).map((a) => ({ ...withStats(a), author: a.author })),
+      decided: ads.where((a) => ["rejected", "expired", "removed"].includes(a.status)).sort((a, b) => (b.decidedAt || b.endedAt || b.createdAt) - (a.decidedAt || a.endedAt || a.createdAt)).slice(0, 15).map(withStats),
       reported: [
         ...threads.where((t) => t.reports?.length).map((t) => ({ kind: "thread", id: t.id, text: `${t.title}: ${t.body}`, authorName: t.authorName, author: t.author, reports: t.reports.length, hidden: t.hidden })),
         ...posts.where((p) => p.reports?.length).map((p) => ({ kind: "post", id: p.id, text: p.body, authorName: p.authorName, author: p.author, reports: p.reports.length, hidden: p.hidden })),
@@ -201,17 +309,22 @@ export function createCommunity({ dir = null, payments = null, notify = { all() 
       muted: mutes.all(),
     };
   }
-  function moderate({ action, kind, id, playerId, reason }) {
+  function moderate({ action, kind, id, playerId, reason }, { actor = null } = {}) {
     if (action === "approve" || action === "reject") {
       const a = ads.get(id);
       if (!a || a.status !== "pending") throw bad("not_pending", "That ad isn't waiting for review.", 409);
+      // Moderators are a separate role (the moderator key); even one who also plays can't clear their own ad.
+      if (actor && actor === a.author) throw bad("own_ad", "You can't moderate your own advertisement. Ask another moderator.", 403);
       if (action === "reject") {
         a.status = "rejected";
-        a.reason = clean(reason, 120);
+        a.decidedAt = now();
+        a.reason = clean(reason, 120) || "Doesn't follow the billboard rules";
         ads.put(a);
         notify.player(a.author, "ad:update", pubAd(a));
         return pubAd(a);
       }
+      if (booked(a.boardId) >= SLOTS_PER_BOARD) throw bad("board_full", "That hoarding's slots are full right now. Reject it, or approve it after another ad ends.", 409);
+      a.decidedAt = now();
       if (a.days > 1) {
         a.status = "awaiting_rent"; // approved; goes live once the rental is paid
         ads.put(a);
@@ -235,6 +348,18 @@ export function createCommunity({ dir = null, payments = null, notify = { all() 
       else notify.all("forum:hidden", { kind, id });
       return { ok: true };
     }
+    if (action === "takedown") {
+      const a = ads.get(id);
+      if (!a || !["live", "awaiting_rent"].includes(a.status)) throw bad("not_live", "That ad isn't running.", 409);
+      a.status = "removed";
+      a.endedAt = now();
+      a.decidedAt = now();
+      a.reason = clean(reason, 120) || "Removed by a moderator";
+      ads.put(a);
+      notify.all("ads:update", liveAds());
+      notify.player(a.author, "ad:update", pubAd(a));
+      return pubAd(a);
+    }
     if (action === "mute" || action === "unmute") {
       if (!/^[a-f0-9]{24}$/.test(String(playerId))) throw bad("bad_player", "Unknown courier.");
       if (action === "mute") mutes.put({ id: playerId, reason: clean(reason, 120), at: now() });
@@ -244,5 +369,5 @@ export function createCommunity({ dir = null, payments = null, notify = { all() 
     throw bad("bad_action", "Unknown moderation action.");
   }
 
-  return { listThreads, getThread, newThread, reply, report, submitAd, myAds, liveAds, payRent, onPayment, sweep, modQueue, moderate, muted, uploadsDir: uploads, _db: { threads, posts, ads, mutes } };
+  return { listThreads, getThread, newThread, reply, report, submitAd, myAds, liveAds, boards, recordView, recordClick, payRent, onPayment, sweep, modQueue, moderate, muted, uploadsDir: uploads, _db: { threads, posts, ads, mutes } };
 }

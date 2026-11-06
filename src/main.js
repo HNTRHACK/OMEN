@@ -1012,6 +1012,9 @@ const community = createCommunityUI({
   chime: () => audio.chime([7, 12], 0.07),
   myName: () => courier.name || "Courier",
   myId: () => net.id,
+  openShop: (id) => shops.openShop(id),
+  myShop: () => shops.mine,
+  canInteract: () => mode === "play" && !busy,
   onOpenChange(open) {
     clearHeldKeys();
     busy = open;
