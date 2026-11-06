@@ -16,7 +16,9 @@ import { buildVenue } from "./venue.js";
 import { buildStage } from "./stage.js";
 import { createMap } from "./map.js";
 import { buildStations } from "./stations.js";
+import { buildTent } from "./tent.js";
 import { createPanel } from "./panel.js";
+import { arrivalForSlot, resumePosition } from './presence.js';
 
 const $ = (s) => document.querySelector(s);
 const MOBILE = matchMedia("(pointer: coarse)").matches;
@@ -82,6 +84,7 @@ await loadAll(["kai", "tree_column"], progress);
 const venue = buildVenue(scene);
 const stage = buildStage(scene);
 const corridor = buildStations(scene);
+const tent = buildTent(scene);
 $("#loading").classList.add("gone");
 setTimeout(() => $("#loading").remove(), 600);
 
@@ -176,7 +179,7 @@ addEventListener("pointercancel", endStick);
 
 // ------------------------------------------------------------------ movement
 const SOLIDS = L.solidBoxes();
-const CAM_BLOCKERS = L.wallBoxes().concat(L.propBoxes().filter((b) => b.kind === "screen" || b.kind === "station")); // stalls stop the camera too
+const CAM_BLOCKERS = L.wallBoxes().concat(L.propBoxes().filter((b) => ["screen", "station", "tent-post"].includes(b.kind))); // stalls and tent posts stop the camera too
 const WALK = 4.4;
 const RUN = 7.6; // the server caps reported speed at 8 m/s
 function move(dt) {
@@ -241,7 +244,8 @@ function updateCamera(dt) {
   const k = Math.max(0.02, t - 0.02);
   bx = head.x + (bx - head.x) * k;
   bz = head.z + (bz - head.z) * k;
-  const ceiling = me.z < 0 ? L.HALL_H - 0.6 : L.CONCOURSE_H - 0.6;
+  // under the festival tent's canopy (player or camera inside it) the canopy is the ceiling
+  const ceiling = L.inTent(me.x, me.z) || L.inTent(bx, bz) ? L.TENT.canopy - 1.1 : me.z < 0 ? L.HALL_H - 0.6 : L.CONCOURSE_H - 0.6;
   const by = Math.min(ceiling, head.y + Math.sin(cam.pitch) * cam.dist * k);
   camera.position.set(bx, Math.max(0.6, by), bz);
   camera.lookAt(head);
@@ -264,6 +268,7 @@ const INTERACT = [
     label: st.kind === "food" ? "Grab a chai at Food & Drinks" : st.kind === "washroom" ? "Washrooms" : st.kind === "mentor" ? "Sit down at the Mentor Station" : `Visit ${st.name}`,
     run: () => panel.open(st),
   })),
+  { key: "tent", at: () => ({ x: L.TENT.x, z: L.TENT.counters[0].z + 1.5 }), range: 2.2, label: "Festival Pavilion counter", run: () => toast("Festival Pavilion: meet-ups, demos and chai under the lights. Pull up a stool.", 5000) },
   { at: () => ({ x: L.STAGE.screen.x, z: L.STAGE.z1 + 1.4 }), range: 3.2, label: "What's on the Main Stage?", run: () => toast("The Main Stage hosts keynotes and finalist demos. The LED wall shows live, moderator-approved player ads between sessions.", 5600) },
 ];
 function findNear() {
@@ -295,11 +300,18 @@ const panel = createPanel({
 
 // ------------------------------------------------------------------ multiplayer (same server, own room)
 const room = roomFromUrl() ? `expo-${roomFromUrl()}`.slice(0, 24) : "omen-expo";
+let placedOnJoin = false;
 const net = createNet({
   scene,
   camera,
   feed,
   worldName: "the venue",
+  onJoin(res) {
+    if (placedOnJoin) return; // a transport reconnect must not move a walking player
+    const p = (res.resumed && resumePosition(res.state)) || arrivalForSlot(res.spawnSlot);
+    Object.assign(me, p, { y: p.y ?? L.groundAt(p.x, p.z), speed: 0 });
+    placedOnJoin = true;
+  },
   onCount: ({ online, connected }) => ($("#online").textContent = connected ? `${online} in the venue` : "offline: reconnecting…"),
   place(group, d, f, h) {
     const p = L.decodePos(d.toArray());
@@ -416,6 +428,7 @@ async function paintScreens() {
 
 // ------------------------------------------------------------------ intro: name + enter
 function begin() {
+  if (mode === 'play') return;
   const name = $("#ex-name").value.trim().slice(0, 16) || "Guest";
   me.name = name;
   try {
@@ -431,7 +444,6 @@ function begin() {
   toast("Welcome to the arrival hall. Main Stage is through the west portal (or press 1).", 4200);
 }
 $("#ex-name").value = me.name;
-$("#ex-enter").onclick = begin;
 $("#ex-form").onsubmit = (e) => (e.preventDefault(), begin());
 if (params.has("auto")) begin(); // tests and kiosk mode
 
@@ -478,6 +490,7 @@ window.__expo = {
   stage,
   venue,
   corridor,
+  tent,
   panel,
   interactAt: () => near?.key || near?.label || null,
   get mode() {

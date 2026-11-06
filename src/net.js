@@ -116,7 +116,7 @@ class Remote {
  * @param o.local()  → { d, f, h, sp, air, talk, hold } for the local courier
  * @param o.feed(text) shows an activity line
  */
-export function createNet({ scene, camera, local, feed, onCount = () => {}, place = planetPlace, worldName = "Blockhaven", onIdentityExpired = () => {} }) {
+export function createNet({ scene, camera, local, feed, onCount = () => {}, onJoin = () => {}, place = planetPlace, worldName = "Blockhaven", onIdentityExpired = () => {} }) {
   // The far-LOD stand-ins: a capsule per far player, all in one InstancedMesh.
   const proxy = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.42, 1.1, 3, 8), new THREE.MeshLambertMaterial({ color: 0xffffff }), MAX_PROXIES);
   proxy.count = 0;
@@ -128,6 +128,8 @@ export function createNet({ scene, camera, local, feed, onCount = () => {}, plac
   let sock = null;
   let room = null;
   let me = null;
+  let joined = false;
+  let online = 0;
   const remotes = new Map();
   const handlers = [];
   let last = "";
@@ -135,7 +137,7 @@ export function createNet({ scene, camera, local, feed, onCount = () => {}, plac
   let beat = 0;
   const resumeKey = () => `omen.player.${room}`;
 
-  const count = () => onCount({ room, online: remotes.size + 1, connected: !!sock?.connected });
+  const count = () => onCount({ room, online: joined && sock?.connected ? online : 0, connected: !!sock?.connected && joined });
   const add = (p) => {
     if (remotes.has(p.id) || p.id === me) return;
     remotes.set(p.id, new Remote(scene, p, place));
@@ -144,12 +146,17 @@ export function createNet({ scene, camera, local, feed, onCount = () => {}, plac
   function join({ room: r, name, look }) {
     room = r;
     sock?.close();
+    joined = false;
+    online = 0;
     sock = io("/world", { transports: ["websocket", "polling"], reconnectionDelayMax: 4000 });
     const hello = () =>
-      sock.emit("join", { room, name, look, token: guestToken() }, (res) => {
-        if (res?.error) return feed(res.error);
+      sock.emit("join", { room, name, look, token: guestToken(), state: local() }, (res) => {
+        if (res?.error) { joined = false; count(); return feed(res.error); }
         const resumed = res.id === me;
         me = res.id;
+        joined = true;
+        online = res.online ?? res.players.length + 1;
+        onJoin(res);
         try {
           sessionStorage.setItem(resumeKey(), me);
         } catch {
@@ -161,11 +168,19 @@ export function createNet({ scene, camera, local, feed, onCount = () => {}, plac
         res.players.forEach(add);
         if (!resumed) feed(res.players.length ? `You joined ${res.players.length} other courier${res.players.length > 1 ? "s" : ""} in room ${room}` : room === "blockhaven" ? "You're the first courier in the public world right now." : `Room ${room} is open. Share the invite link!`);
         last = "";
+        // Publish the placed avatar immediately, including after an idle refresh/reconnect.
+        sock.emit('state', local());
         count();
       });
     sock.on("connect", hello);
     sock.on("disconnect", () => {
+      joined = false;
       feed("Connection lost, reconnecting…");
+      count();
+    });
+    sock.on('presence', (p) => {
+      if (!Number.isInteger(p?.online) || p.online < 0) return;
+      online = p.online;
       count();
     });
     sock.on("joined", (p) => {
@@ -221,7 +236,7 @@ export function createNet({ scene, camera, local, feed, onCount = () => {}, plac
       return room;
     },
     get online() {
-      return remotes.size + 1;
+      return joined && sock?.connected ? online : 0;
     },
     remotes,
     /** How many remote players are drawn at each level of detail (for the perf overlay and tests). */
@@ -247,7 +262,7 @@ export function createNet({ scene, camera, local, feed, onCount = () => {}, plac
       return me;
     },
     get connected() {
-      return !!sock?.connected;
+      return !!sock?.connected && joined;
     },
     act(kind, target = "") {
       if (sock?.connected) sock.emit("act", { kind, target });
@@ -267,7 +282,7 @@ export function createNet({ scene, camera, local, feed, onCount = () => {}, plac
       proxy.count = n;
       proxy.instanceMatrix.needsUpdate = true;
       if (proxy.instanceColor) proxy.instanceColor.needsUpdate = true;
-      if (!sock?.connected) return;
+      if (!sock?.connected || !joined) return;
       sendT += dt;
       beat += dt;
       if (sendT < 1 / SEND_HZ) return;
@@ -280,6 +295,7 @@ export function createNet({ scene, camera, local, feed, onCount = () => {}, plac
       sock.volatile.emit("state", s);
     },
     leave() {
+      joined = false;
       sock?.close();
       for (const r of remotes.values()) r.remove(scene);
       remotes.clear();

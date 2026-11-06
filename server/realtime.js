@@ -117,6 +117,8 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
 
   // ---------------------------------------------------------------- world
   const world = io.of("/world");
+  // Reconnect ghosts retain their avatar briefly, but are not online people.
+  const presence = (room) => ({ online: [...(rooms.get(room)?.values() || [])].filter((p) => world.sockets.get(p.sock)?.connected).length });
   const expireIdentity = (sock) => {
     if (sock.data.authRevoked) return;
     sock.data.authRevoked = true;
@@ -214,7 +216,10 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
         if (changed && (token || owned)) sock.to(room).emit("look", { id: me.id, name: me.name, look: me.look });
       } else {
         if (players.size >= MAX_PER_ROOM) return ack({ error: "This room is full." });
-        me = { id: id || randomBytes(12).toString("hex"), name, look, s: null, room, authenticated: !!(token || owned), verifiedHuman: !!identity?.verifiedHuman, avatarRevision: owned?.avatar.revision ?? null };
+        const occupied = new Set([...players.values()].map((p) => p.spawnSlot));
+        let spawnSlot = 0;
+        while (occupied.has(spawnSlot)) spawnSlot++;
+        me = { id: id || randomBytes(12).toString("hex"), name, look, s: cleanState(msg?.state), room, spawnSlot, authenticated: !!(token || owned), verifiedHuman: !!identity?.verifiedHuman, avatarRevision: owned?.avatar.revision ?? null };
         players.set(me.id, me);
         sock.to(room).emit("joined", pub(me));
       }
@@ -233,7 +238,8 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
         expiryTimer.unref();
       }
       sock.join(room);
-      ack({ id: me.id, avatarId: me.id, verifiedHuman: me.verifiedHuman, avatarRevision: me.avatarRevision, room, players: [...players.values()].filter((p) => p.id !== me.id).map(pub), chat: chatLog.get(room) || [] });
+      ack({ id: me.id, avatarId: me.id, verifiedHuman: me.verifiedHuman, avatarRevision: me.avatarRevision, room, spawnSlot: me.spawnSlot, resumed: !!existing, state: me.s, ...presence(room), players: [...players.values()].filter((p) => p.id !== me.id).map(pub), chat: chatLog.get(room) || [] });
+      world.to(room).emit('presence', presence(room));
       } catch (e) { ack({ error: e.status === 401 ? 'Sign in again with World ID.' : 'Identity service is unavailable.', code: e.code || 'identity_unavailable' }); }
       finally { joining = false; }
     });
@@ -285,6 +291,8 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
       if (!me) return;
       const p = me;
       if (p.sock !== sock.id) return; // replaced by a newer connection of the same courier
+      p.sock = null;
+      world.to(p.room).emit('presence', presence(p.room));
       if (sock.data.authRevoked) {
         rooms.get(p.room)?.delete(p.id);
         if (!rooms.get(p.room)?.size) rooms.delete(p.room);
