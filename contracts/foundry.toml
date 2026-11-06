@@ -1,0 +1,14 @@
+# Settings follow Whitechain's Foundry guide (docs.whitechain.io/build/deploy/deploy-with-foundry):
+# verification fails if the compiler differs, and "prague" is the highest EVM target both
+# Whitechain mainnet and testnet run.
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc = "0.8.30"
+evm_version = "prague"
+optimizer = true
+optimizer_runs = 200
+
+[rpc_endpoints]
+whitechain_sepolia = "https://rpc.testnet.whitechain.io/"
