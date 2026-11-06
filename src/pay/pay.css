@@ -176,3 +176,46 @@ details summary { cursor: pointer; margin-top: 8px; color: var(--teal); }
 .ad-kicker { margin: 0; font-family: var(--display); font-weight: 800; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .ad-preview { width: 100%; height: auto; border: 2.5px solid var(--ink); border-radius: 8px; }
 details summary { font-family: var(--display); font-weight: 800; }
+
+/* ---------- Alfred: conversation + quests ---------- */
+#alfred { position: fixed; inset: 0; z-index: 30; display: grid; justify-content: end; align-items: center; padding: 12px max(12px, 3vw); pointer-events: none; user-select: text; touch-action: auto; }
+.al-sheet { pointer-events: auto; width: min(440px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); display: flex; flex-direction: column; gap: 8px; padding: 12px 16px 12px; background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 8px 9px 0 var(--ink); animation: drop2 0.35s cubic-bezier(.2,.9,.3,1.2); font-size: 18px; line-height: 1.3; }
+.al-sheet .pay-head { margin-bottom: 0; }
+.al-sheet .pay-head h2 { flex: 0 1 auto; }
+.al-sheet .pay-head .badge { margin-right: auto; }
+.al-pane { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: auto; }
+#al-talk { flex: 1; }
+#al-log { display: flex; flex-direction: column; gap: 8px; overflow: auto; min-height: 120px; max-height: 44dvh; padding-right: 2px; }
+.al-msg { max-width: 94%; border: 2.5px solid var(--ink); border-radius: 14px; padding: 6px 12px; }
+.al-msg p { margin: 2px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.al-msg.alfred { align-self: flex-start; background: #fffaf0; border-top-left-radius: 4px; }
+.al-msg.me { align-self: flex-end; background: var(--butter); border-top-right-radius: 4px; }
+.al-note { font-size: 15px; color: var(--muted); }
+.al-label { font-family: var(--display); font-weight: 800; font-size: 11px !important; letter-spacing: 0.03em; display: inline-block; border: 1.5px solid var(--ink); border-radius: 4px; padding: 0 6px; margin-top: 4px !important; }
+.al-label.ai { background: var(--teal); color: #fff; }
+.al-label.off { background: #f1c6d3; }
+.al-dots span { animation: dotpulse 1.2s infinite; }
+.al-dots span:nth-child(2) { animation-delay: 0.2s; } .al-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes dotpulse { 0%, 60%, 100% { opacity: 0.2; } 30% { opacity: 1; } }
+.al-quest-card, .al-quest { border: 2.5px dashed var(--ink); border-radius: 12px; padding: 6px 12px; margin-top: 6px; background: #f7efd9; }
+.al-quest-card p, .al-quest p { margin: 2px 0; }
+.al-quest-card ol, .al-quest ol { margin: 4px 0; padding-left: 20px; }
+.al-quest-card li, .al-quest li { margin: 4px 0; }
+.al-quest li.done label { text-decoration: line-through; color: var(--muted); }
+.al-quest li small { display: block; color: var(--muted); font-size: 14px; }
+.al-quest .here { color: #2c6b45; font-weight: 700; }
+.al-quest h3 { margin: 2px 0; font-size: 19px; }
+.al-done-h { margin: 10px 0 0; }
+.al-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.al-chips .chip { font-size: 15px; text-align: left; }
+#al-form { display: flex; gap: 8px; }
+#al-form input { flex: 1; min-width: 0; font: inherit; font-size: 18px; padding: 4px 10px; border: 2.5px solid var(--ink); border-radius: 9px; background: #fffaf0; }
+.al-foot { margin: 0 !important; font-size: 13px !important; }
+#quest-chip { position: fixed; left: 14px; top: 108px; z-index: 5; max-width: min(360px, calc(100vw - 110px)); text-align: left; cursor: pointer; font-size: 16px; line-height: 1.2; background: var(--paper); border: 2.5px solid var(--ink); border-left: 10px solid var(--net); border-radius: 10px; padding: 3px 10px; box-shadow: 3px 3px 0 var(--ink); }
+#quest-chip small { display: block; color: var(--muted); font-size: 13px; }
+@media (max-width: 760px) {
+  #alfred { justify-content: center; align-items: end; }
+  .al-sheet { max-height: 62dvh; }
+  #al-log { max-height: 26dvh; }
+}
+@media (prefers-reduced-motion: reduce) { .al-sheet, .al-dots span { animation: none; } }

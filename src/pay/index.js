@@ -372,6 +372,7 @@ export function initPay({ onStage = () => {}, onOpenChange = () => {} } = {}) {
           ${p.mode === "demo" ? `<dt>Settlement</dt><dd>DEMO credits, no blockchain transaction</dd>` : ""}
           <dt>Mode</dt><dd>${p.mode === "testnet" ? "<b>TESTNET CRYPTO PAYMENT</b>" : "<b>DEMO</b> (play credits)"}</dd>
           <dt>INR</dt><dd>${p.payout ? (p.payout.real && p.payout.providerRef ? `Settled by provider, ref <code>${esc(p.payout.providerRef)}</code>` : `${Badge.sim} <small>${formatInr(p.payout.inrPaise)} is the quoted equivalent; no rupees moved and there is no bank reference</small>`) : "—"}</dd>
+          ${p.onchain?.payout ? `<dt>Paid to</dt><dd><a href="${WHITECHAIN.explorer}/address/${esc(p.onchain.payout)}" target="_blank" rel="noopener"><code>${short(p.onchain.payout)}</code> ↗</a> <small>the wallet that received it, from the on-chain Paid event</small></dd>` : ""}
           <dt>Risk check</dt><dd>${riskSummary(p.risk)}</dd>
           ${ai?.requestId ? `<dt>0G request</dt><dd><code class="wrap">${esc(ai.requestId)}</code> <small>${esc(ai.provider || "")} ${esc(ai.model || "")}${ai.verified === true ? " · response verified" : ai.verified === false ? " · verification failed" : ""}</small></dd>` : ""}
           <dt>Order</dt><dd><code class="wrap">${esc(p.id)}</code></dd>
@@ -729,6 +730,14 @@ export function initPay({ onStage = () => {}, onOpenChange = () => {} } = {}) {
         if (fresh.state === "AWAITING_WALLET" || fresh.state === "RISK_ASSESSED") {
           // Can't re-authorize a signed-off quote; start a fresh one.
           await api(`/payments/${p0.id}/cancel`, {}).catch(() => {});
+          if (p0.market) {
+            // A shop order or invoice has no QR to re-scan. The order is cancelled (its stock is
+            // released); say so plainly and let the player start again from the shop.
+            co.payment = null;
+            render(`<header class="pay-head"><h2 id="pay-h">Not paid</h2><button class="x" data-act="close" aria-label="Close">×</button></header>${steps("approve", true)}<p class="err">${esc(msg)}</p><p>Nothing was charged and the order was cancelled. Open the stall again to retry.</p><div class="row-actions"><button class="btn small" data-act="close" autofocus>Close</button></div>`);
+            bindActs({});
+            return;
+          }
           co.payment = null;
           return reviewSetup(msg);
         }

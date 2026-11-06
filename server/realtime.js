@@ -18,7 +18,7 @@ export const OUTFITS = 6;
 const RECONNECT_GRACE_MS = 10_000;
 const MAX_PER_ROOM = 16;
 const ACTS = {
-  talk: new Set(["maya", "orin", "echo", "relay", "board"]),
+  talk: new Set(["maya", "orin", "echo", "relay", "board", "alfred"]),
   scan: new Set(["maya-chai", "orin-relay"]),
   paid: new Set(["maya-chai", "orin-relay"]), // no amount, no address: just "X paid Maya"
   coin: new Set(["btc", "eth", "sol", "usdt", "usdc", "wbt"]),

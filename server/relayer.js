@@ -22,6 +22,24 @@ export class RelayError extends Error {
   }
 }
 
+const INFRA = /failed to get|error sending request|timed? ?out|fetch failed|HTTP request failed|ECONN|ENOTFOUND|socket hang up|network|rate limit|429|502|503|504/i;
+
+/**
+ * Turn a failed simulation into an honest, short message. A node that can't be reached is NOT the
+ * same as a payment that would fail: say which, never show a raw multi-line contract error, and
+ * always say nothing was sent.
+ */
+export function classifyRelayError(e) {
+  const text = `${e?.shortMessage || ""} ${e?.message || ""} ${e?.cause?.message || ""} ${e?.cause?.reason || ""}`;
+  const reverted = e?.cause?.name === "ContractFunctionRevertedError" || /reverted with the following (reason|signature)/i.test(text);
+  // viem reports some node failures (e.g. a fork's upstream timing out) as reverts, so judge the
+  // reason text itself: a real contract revert carries a decoded reason/error name, an outage doesn't.
+  const decoded = !!(e?.cause?.data?.errorName || (e?.cause?.reason && !INFRA.test(e.cause.reason)));
+  if (INFRA.test(text) && !decoded) return new RelayError("chain_unreachable", "The Whitechain node isn't responding right now. Nothing was sent or charged. Please try again in a moment.", 503);
+  const reason = String(e?.cause?.reason || e?.cause?.errorName || e?.shortMessage || "it would be refused").replace(/\s+/g, " ").slice(0, 120);
+  return new RelayError("would_revert", reverted ? `The payment would be refused on-chain (${reason}). Nothing was sent or charged.` : `The payment can't be sent right now (${reason}). Nothing was sent or charged.`, 400);
+}
+
 export function relayerStatus() {
   return { configured: !!(config.relayerKey && config.checkoutAddress), maxPerHour: config.relayerMaxPerHour };
 }
@@ -52,7 +70,9 @@ export function createRelayer({ now = () => Date.now() } = {}) {
       try {
         await pub.simulateContract({ address: config.checkoutAddress, abi: CHECKOUT_ABI, functionName: "payWithAuthorization", args, account });
       } catch (e) {
-        throw new RelayError("would_revert", `The payment would fail on-chain (${e.shortMessage || e.message}). Nothing was sent.`, 400);
+        const err = classifyRelayError(e);
+        console.warn(`[relayer] simulation failed (${err.code}):`, String(e?.shortMessage || e?.message || e).replace(/\s+/g, " ").slice(0, 300));
+        throw err;
       }
       const hash = await wallet.writeContract({ address: config.checkoutAddress, abi: CHECKOUT_ABI, functionName: "payWithAuthorization", args, gas: GAS_CAP });
       sent.push(t);

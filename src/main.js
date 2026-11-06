@@ -18,6 +18,8 @@ import { audio } from "./audio.js";
 import { toon, model } from "./assets.js";
 import { createShops } from "./shop.js";
 import { createCommunityUI } from "./community.js";
+import { createAlfredUI, ALFRED_LOOK } from "./alfred.js";
+import { PLACE_SHORT } from "../shared/places.js";
 import { BOARDS } from "../shared/billboards.js";
 import { PLOTS, SHOP_COLORS } from "../shared/storefronts.js";
 import { initPay } from "./pay/index.js";
@@ -120,6 +122,37 @@ const echo = new Character("echo");
 }
 W.colliders.push({ dir: echo.group.position.clone().normalize(), r: 0.5 });
 
+// Alfred, the advisor: the animated courier rig, dressed as an elderly mentor with a cane, standing
+// by the plaza bench. (A dedicated Blender model is a follow-up: bpy isn't available here.)
+const alfred = new Character("kai", { unique: true });
+alfred.name = "alfred";
+applyLook(alfred, ALFRED_LOOK);
+{
+  const wood = toon(P.wood);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.026, 0.82, 8), wood);
+  shaft.position.set(0.04, -0.85, 0.06);
+  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), toon(P.butter));
+  knob.position.set(0.04, -0.43, 0.06);
+  for (const m of [shaft, knob]) {
+    m.castShadow = true;
+    alfred.p.armR.add(m);
+  }
+  // Spot chosen by measuring the live scene (clear of lanes, props and lamp posts, with a clear
+  // sightline for a talking player), plus his own bench, same orientation as the plaza's benches.
+  const dir = mapDir(0, -8);
+  const bench = model("bench");
+  placeMap(bench, 2.1, -8.2, 4.2, -16.4);
+  bench.traverse((o) => o.isMesh && ((o.castShadow = true), (o.receiveShadow = true)));
+  scene.add(bench);
+  const fwd = tangentToward(dir, mapDir(0, 0));
+  alfred.group.position.copy(dir).multiplyScalar(R);
+  alfred.group.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3().crossVectors(dir, fwd), dir, fwd));
+  scene.add(alfred.group);
+  W.colliders.push({ dir: dir.clone(), r: 0.55 });
+}
+const alfredTag = Object.assign(document.createElement("div"), { className: "nametag", innerHTML: '<span class="sw o4"></span>Alfred · advisor' });
+document.body.append(alfredTag);
+
 const spawnDir = mapDir(...SPOTS.spawn.at);
 const mover = new Mover(kai, spawnDir, tangentToward(spawnDir, mapDir(...SPOTS.spawn.face)), W.colliders);
 const rig = new CameraRig(camera, W.camBlockers);
@@ -142,6 +175,7 @@ const ITEMS = {
   lens: { icon: "lens", name: "Orin's block lens", desc: "Lets you read confirmations. Smells faintly of solder.", simulated: false },
   sealed: { icon: "sealed", name: "Orin's sealed findings", desc: "Proof that block 88 was signed by a node that doesn't exist.", simulated: true },
   tea: { icon: "tea", name: "A week of free chai", desc: "Maya's thank-you. Possibly two weeks.", simulated: false },
+  alfredNote: { icon: "sealed", name: "Alfred's note of thanks", desc: "“Small steps, taken for real, are the whole trick.” Not money, not crypto: just encouragement.", simulated: false },
 };
 const state = { stage: "start", items: [], relay: false, festival: false };
 
@@ -713,6 +747,7 @@ const boardPos = W.colliders && mapDir(3.4, 4.3).multiplyScalar(R);
 const talkables = [
   { label: "Talk to Maya", at: () => W.hero.chai.localToWorld(new THREE.Vector3(0.4, 0, 4.3)), head: () => headOf(maya), run: talkMaya, range: 2.8 },
   { label: "Talk to Orin", at: () => orin.local(0, 0, 1.6), head: () => headOf(orin), run: talkOrin, range: 2.6 },
+  { label: "Talk to Alfred", at: () => alfred.local(0, 0, 1.5), head: () => headOf(alfred), run: async () => talkAlfred(), range: 2.8 },
   { label: "Talk to the stranger", at: () => echo.local(0, 0, 1.4), head: () => headOf(echo), run: talkEcho, range: 2.6, when: () => echo.group.visible },
   { get label() { return state.relay ? "Look at Relay 03" : "Examine Relay 03"; }, at: () => relayPos, head: () => relayPos.clone().addScaledVector(relayPos.clone().normalize(), 4.6), run: useRelay, range: 2.7 },
   { label: "Notice board · community", at: () => boardPos.clone().add(new THREE.Vector3()), head: () => boardPos.clone().addScaledVector(boardPos.clone().normalize(), 2.2), run: readBoard, range: 2.2 },
@@ -992,6 +1027,108 @@ addEventListener("keydown", (e) => {
   }
 });
 
+// ------------------------------------------------------------------ Alfred: advice, quests, guidance
+
+const alfredUI = createAlfredUI({
+  myName: () => courier.name || "Courier",
+  context: () => ({ shop: shops.mine?.name || undefined, coins: found.size }),
+  onOpenChange(open) {
+    clearHeldKeys();
+    busy = open;
+    mover.enabled = !open && mode === "play";
+    input.x = input.y = 0;
+  },
+  toast: (t, ms) => ui.toast(t, ms),
+  chime: () => audio.chime([0, 7, 12], 0.08),
+  blip: (p) => audio.blip(p),
+  setTalking: (on) => {
+    alfred.talk = on ? 1 : 0;
+  },
+  onComplete() {
+    kai.cheer = 1.2;
+    particles.burst(kai.local(0, 2.2, 0), "petal", 50, 4);
+    setTimeout(() => give("alfredNote"), 1800); // after the "quest complete" toast has been read
+  },
+});
+async function talkAlfred() {
+  await converse(alfred, () => alfredUI.open({ managed: true }));
+}
+
+// A bobbing diamond marks the next step of the quest Alfred set; arriving there is detected here.
+const questMarker = new THREE.Group();
+questMarker.add(new THREE.Mesh(new THREE.OctahedronGeometry(0.3, 0), new THREE.MeshBasicMaterial({ color: P.netGlow })), new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.03, 6, 24), new THREE.MeshBasicMaterial({ color: P.butter })));
+questMarker.visible = false;
+scene.add(questMarker);
+const ARRIVE_RADIUS = 4.2;
+const lookoutSpot = mapDir(...SPOTS.lookout).multiplyScalar(R);
+/** Where a quest place is: `at` on the ground (for arrival), `mark` above it (for the marker). */
+function placeInfo(place) {
+  const from = kai.group.position;
+  const up = (v, h) => v.clone().addScaledVector(v.clone().normalize(), h);
+  const nearest = (list) => list.reduce((b, c) => (c.at.distanceTo(from) < b.at.distanceTo(from) ? c : b));
+  switch (place) {
+    case "maya": return { at: W.hero.chai.localToWorld(new THREE.Vector3(0.4, 0, 4.3)), mark: up(headOf(maya), 1) };
+    case "orin": return { at: orin.local(0, 0, 1.6), mark: up(headOf(orin), 1) };
+    case "relay": return { at: relayPos, mark: up(relayPos, 5.6) };
+    case "board": return { at: boardPos, mark: up(boardPos, 3.2) };
+    case "alfred": return { at: alfred.local(0, 0, 1.5), mark: up(headOf(alfred), 1) };
+    case "lookout": return { at: lookoutSpot, mark: up(lookoutSpot, 3.4) };
+    case "post": {
+      const at = W.hero.post.localToWorld(new THREE.Vector3(0, 0, 5.5));
+      return { at, mark: up(at, 5) };
+    }
+    case "market": return nearest(Object.values(stalls).map((st) => ({ at: st.front(), mark: up(st.top(), 0.7) })));
+    case "hoarding": return nearest(community.boards.map((b) => ({ at: b.front(), mark: up(b.top(), 0.8) })));
+    default: return null;
+  }
+}
+let nextWave = 0;
+function alfredFrame(dt, t) {
+  if (mode !== "play") {
+    questMarker.visible = false;
+    alfredTag.hidden = true;
+    return;
+  }
+  // Alfred notices the nearest courier (you or a remote player) and waves hello now and then
+  if (!alfredUI.isOpen()) {
+    let best = null;
+    let bd = 9;
+    for (const p of [kai.group.position, ...[...net.remotes.values()].map((r) => r.c.group.position)]) {
+      const d = p.distanceTo(alfred.group.position);
+      if (d < bd) {
+        bd = d;
+        best = p;
+      }
+    }
+    if (best) {
+      const l = alfred.group.worldToLocal(best.clone());
+      alfred.headTarget = THREE.MathUtils.clamp(Math.atan2(l.x, l.z), -0.9, 0.9);
+    } else alfred.headTarget = 0;
+    if (!busy && t > nextWave && kai.group.position.distanceTo(alfred.group.position) < 6) {
+      alfred.wave = 1.4;
+      nextWave = t + 60;
+    }
+  }
+  // his name tag
+  const head = alfred.local(0, 2.4, 0);
+  const v = head.clone().project(camera);
+  alfredTag.hidden = v.z > 1 || head.distanceTo(camera.position) > 32;
+  if (!alfredTag.hidden) alfredTag.style.transform = `translate(${((v.x + 1) / 2) * innerWidth}px, ${((1 - v.y) / 2) * innerHeight}px) translate(-50%, -100%)`;
+  // quest guidance + arrival
+  const qt = alfredUI.target();
+  const info = qt && placeInfo(qt.place);
+  questMarker.visible = !!info && !busy;
+  if (!info) return;
+  const up = info.mark.clone().normalize();
+  questMarker.position.copy(info.mark).addScaledVector(up, Math.sin(t * 2.2) * 0.18);
+  questMarker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
+  questMarker.rotateY(t * 1.6);
+  if (!qt.step.arrived && info.at.distanceTo(kai.group.position) < ARRIVE_RADIUS && alfredUI.arrived(qt.place)) {
+    ui.toast(`You've reached ${PLACE_SHORT[qt.place]}: ${qt.step.text}`, 5000);
+    audio.chime([4, 9], 0.06);
+  }
+}
+
 function joinRoom(room) {
   shops.refresh();
   community.refreshAds();
@@ -1162,9 +1299,11 @@ function frame() {
   kaiPet.pet?.update(dt, kai.group, mover.speed);
   if (mode === "play") net.update(dt, t);
   coins.update(dt, t, found);
+  alfredFrame(dt, t);
   community.update((id) => (id === net.id ? headOf(kai).addScaledVector(kai.group.position.clone().normalize(), 0.75) : net.remotes.get(id)?.c.local(0, 2.55, 0)));
   maya.update(dt, t);
   orin.update(dt, t);
+  alfred.update(dt, t);
   if (echo.group.visible) echo.update(dt, t);
   for (const e of flying) e.update(dt);
   particles.update(dt);
@@ -1245,6 +1384,8 @@ window.__omen = {
   stalls,
   shops,
   community,
+  alfred,
+  alfredUI,
   THREE, // test hook only: lets browser tests raycast the real scene
   scene,
   get mode() {

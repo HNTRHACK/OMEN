@@ -216,10 +216,11 @@ export function bindInput(input, { onAct, onOrbit }) {
     input.run = keys.has("shift");
   };
   addEventListener("keydown", (e) => {
-    if (e.target.closest?.("input, textarea, select, #pay, #coin-card, #shop, #forum, #chat-bar")) return;
-    if (document.querySelector("#pay:not([hidden]), #coin-card:not([hidden]), #shop:not([hidden]), #forum:not([hidden]), #chat-bar:not([hidden])")) return; // an open sheet owns the keyboard
+    if (e.target.closest?.("input, textarea, select, #pay, #coin-card, #shop, #forum, #chat-bar, #alfred")) return;
+    if (document.querySelector("#pay:not([hidden]), #coin-card:not([hidden]), #shop:not([hidden]), #forum:not([hidden]), #chat-bar:not([hidden]), #alfred:not([hidden])")) return; // an open sheet owns the keyboard
     const k = e.key.toLowerCase();
     if (ui.dialogueOpen()) return;
+    if (k === "e") e.preventDefault(); // never let the interact key be typed into a panel it opens
     if (k === "e" || k === "enter") return onAct();
     if (k === " ") {
       e.preventDefault();

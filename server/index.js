@@ -17,6 +17,7 @@ import { playerFromRequest } from "./identity.js";
 import { createCommunity, CATS } from "./community.js";
 import { isModerator } from "./moderation.js";
 import { serveUpload } from "./images.js";
+import { createAlfred } from "./alfred.js";
 import { MERCHANTS, merchantKey } from "../shared/merchants.js";
 import { WHITECHAIN, USDT } from "../shared/chains.js";
 import { FEE_BPS } from "../shared/money.js";
@@ -31,7 +32,7 @@ export function toCsv(rows) {
   return [CSV_COLS.join(","), ...rows.map((r) => CSV_COLS.map((c) => csvCell(c === "createdAt" ? new Date(r.createdAt).toISOString() : r[c])).join(","))].join("\n") + "\n";
 }
 
-export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys(), market = createMarket(), commerce = null, community = null }) {
+export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys(), market = createMarket(), commerce = null, community = null, alfred = null }) {
   const name = (b) => String(b?.name || "").slice(0, 16);
   const modOnly = (req) => {
     if (!isModerator(req)) throw new ApiError(403, "not_moderator", "Moderators only.");
@@ -95,6 +96,13 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
           ["POST", /^\/api\/ads\/([\w-]{36})\/rent$/, async ([id], b, req) => community.payRent(playerFromRequest(req), id, b)],
           ["GET", /^\/api\/mod\/queue$/, async (_, b, req) => (modOnly(req), community.modQueue())],
           ["POST", /^\/api\/mod$/, async (_, b, req) => (modOnly(req), community.moderate(b))],
+        ]
+      : []),
+    // Alfred, the advisor NPC
+    ...(alfred
+      ? [
+          ["GET", /^\/api\/alfred$/, async () => alfred.status()],
+          ["POST", /^\/api\/alfred$/, async (_, b, req) => alfred.ask(playerFromRequest(req), b.name, b.text, b.context || {})],
         ]
       : []),
     // Merchant: payment history (JSON) and accountant export (CSV)
@@ -234,7 +242,8 @@ export function createGateway({ onChange = () => {}, notify = { player() {}, all
     merchants: MERCHANTS.map((m) => ({ ...m, key: merchantKey(m.id) })),
     inrPayout: "simulated",
   });
-  const app = createApp({ service, publicConfig, store, commerce, community });
+  const alfred = createAlfred({ zgInfer: zgStatus().configured ? (m) => infer(m) : null });
+  const app = createApp({ service, publicConfig, store, commerce, community, alfred });
   app.commerce = commerce;
   app.community = community;
   app.service = service;
@@ -248,6 +257,7 @@ export function logStatus(where) {
   console.log(`  Whitechain checkout: ${config.checkoutAddress || "not configured (DEMO credits only)"}`);
   console.log(`  0G inference:       ${z.configured ? z.mode : "off (rules-only risk checks)"}`);
   console.log(`  Gasless relayer:    ${relayerStatus().configured ? "on" : "off (set RELAYER_PRIVATE_KEY + CHECKOUT_ADDRESS)"}`);
+  console.log(`  Alfred (AI NPC):    ${process.env.ANTHROPIC_API_KEY ? "Claude" : zgStatus().configured ? "0G" : "offline mode (set ANTHROPIC_API_KEY)"}`);
 }
 
 /** Payment changes fan out to the merchant's live view and their signed webhook. */

@@ -32,6 +32,9 @@ const CHECKOUT_ABI = [
   },
   { type: "function", name: "token", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "merchants", stateMutability: "view", inputs: [{ name: "", type: "bytes32" }], outputs: [{ name: "payout", type: "address" }, { name: "active", type: "bool" }] },
+  // Registered merchants AND direct ids (player shops: the id embeds the payout address). `merchants`
+  // alone can't see a direct id, so every shop payment would have been refused as "not registered".
+  { type: "function", name: "merchantOf", stateMutability: "view", inputs: [{ name: "merchantId", type: "bytes32" }], outputs: [{ type: "tuple", components: [{ name: "payout", type: "address" }, { name: "active", type: "bool" }] }] },
 ];
 
 const listeners = new Set();
@@ -122,12 +125,12 @@ export const wallet = {
     const w = wallet.client();
     const amount = BigInt(c.amount);
     // Don't take the server's word for where to send an approval: check the contract on-chain.
-    const [token, [, active]] = await Promise.all([
+    const [token, m] = await Promise.all([
       wallet.pub.readContract({ address: checkout, abi: CHECKOUT_ABI, functionName: "token" }).catch(() => null),
-      wallet.pub.readContract({ address: checkout, abi: CHECKOUT_ABI, functionName: "merchants", args: [c.merchantKey] }).catch(() => [null, false]),
+      wallet.pub.readContract({ address: checkout, abi: CHECKOUT_ABI, functionName: "merchantOf", args: [c.merchantKey] }).catch(() => ({ active: false })),
     ]);
     if (!token || getAddress(token) !== getAddress(USDT.address)) throw new Error("The checkout contract doesn't accept the official test USDT. Refusing to approve anything.");
-    if (!active) throw new Error("This merchant isn't registered on the checkout contract. Nothing was approved.");
+    if (!m.active) throw new Error("This merchant isn't registered on the checkout contract. Nothing was approved.");
     const bal = await wallet.pub.readContract({ address: USDT.address, abi: erc20Abi, functionName: "balanceOf", args: [wallet.address] });
     if (bal < amount) throw new Error(`Not enough test USDT: you have ${formatUnits(bal, USDT.decimals)}, this needs ${formatUnits(amount, USDT.decimals)}.`);
     const allowance = await wallet.pub.readContract({ address: USDT.address, abi: erc20Abi, functionName: "allowance", args: [wallet.address, checkout] });
@@ -178,12 +181,12 @@ export const wallet = {
 
   /** On-chain check that `checkout` takes official test USDT and knows the merchant. */
   async checkCheckout(checkout, merchantKey) {
-    const [token, [, active]] = await Promise.all([
+    const [token, m] = await Promise.all([
       wallet.pub.readContract({ address: checkout, abi: CHECKOUT_ABI, functionName: "token" }).catch(() => null),
-      merchantKey ? wallet.pub.readContract({ address: checkout, abi: CHECKOUT_ABI, functionName: "merchants", args: [merchantKey] }).catch(() => [null, false]) : [null, true],
+      merchantKey ? wallet.pub.readContract({ address: checkout, abi: CHECKOUT_ABI, functionName: "merchantOf", args: [merchantKey] }).catch(() => ({ active: false })) : { active: true },
     ]);
     if (!token || getAddress(token) !== getAddress(USDT.address)) throw new Error("The checkout contract doesn't accept the official test USDT. Refusing to sign anything.");
-    if (!active) throw new Error("This merchant isn't registered on the checkout contract. Nothing was signed.");
+    if (!m.active) throw new Error("This merchant isn't registered on the checkout contract. Nothing was signed.");
   },
 
   async usdtBalance() {

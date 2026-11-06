@@ -162,7 +162,7 @@ export function createNet({ scene, camera, local, feed, onCount = () => {} }) {
       if (!rm) return;
       const who = rm.name;
       const text = {
-        talk: { maya: "is talking to Maya", orin: "is talking to Orin", echo: "is talking to the stranger", relay: "is examining Relay 03", board: "is reading the notice board" },
+        talk: { maya: "is talking to Maya", orin: "is talking to Orin", echo: "is talking to the stranger", relay: "is examining Relay 03", board: "is reading the notice board", alfred: "is asking Alfred for advice" },
         scan: { "maya-chai": "is scanning Maya's QR", "orin-relay": "is scanning Orin's QR" },
         paid: { "maya-chai": "paid Maya", "orin-relay": "paid Orin" },
         coin: { btc: "found Bitcoin", eth: "found Ethereum", sol: "found Solana", usdt: "found Tether", usdc: "found USD Coin", wbt: "found WhiteBIT Coin" },
