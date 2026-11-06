@@ -89,3 +89,17 @@ test("0G router: request ID is taken from the response; missing ID or HTTP error
     Object.assign(config.zg, saved);
   }
 });
+
+test("rate limiting uses X-Forwarded-For only behind a trusted proxy", async () => {
+  const { clientIp } = await import("../server/index.js");
+  const req = { headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1" }, socket: { remoteAddress: "10.0.0.1" } };
+  const saved = config.trustProxy;
+  try {
+    config.trustProxy = false;
+    assert.equal(clientIp(req), "10.0.0.1", "without a proxy the header is spoofable and ignored");
+    config.trustProxy = true;
+    assert.equal(clientIp(req), "203.0.113.7");
+  } finally {
+    config.trustProxy = saved;
+  }
+});

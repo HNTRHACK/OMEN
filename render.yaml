@@ -1,0 +1,32 @@
+# Render blueprint (not deployed automatically: create it from the Render dashboard when ready).
+# One instance only: rooms and merchant sockets live in memory. The disk keeps payment history.
+services:
+  - type: web
+    name: omen
+    runtime: docker
+    plan: starter
+    numInstances: 1
+    healthCheckPath: /api/health
+    disk:
+      name: omen-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: TRUST_PROXY
+        value: "1"
+      - key: CHECKOUT_ADDRESS
+        sync: false
+      - key: RELAYER_PRIVATE_KEY # server-only, testnet-only key with a little WBT
+        sync: false
+      - key: MERCHANT_KEYS # e.g. maya-chai:<secret>,orin-relay:<secret>
+        sync: false
+      - key: WEBHOOKS
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
+      - key: ZG_API_KEY
+        sync: false
+      - key: ZG_MODEL
+        sync: false
+      - key: COINGECKO_API_KEY
+        sync: false

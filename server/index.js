@@ -77,7 +77,7 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
       res.writeHead(204, { "access-control-allow-origin": config.allowedOrigin, "access-control-allow-methods": "GET,POST", "access-control-allow-headers": "content-type" });
       return res.end();
     }
-    if (limited(req.socket.remoteAddress || "?")) return send(429, { error: "rate_limited", message: "Too many requests. Slow down a little." });
+    if (limited(clientIp(req))) return send(429, { error: "rate_limited", message: "Too many requests. Slow down a little." });
     try {
       for (const [m, re, fn] of routes) {
         const match = re.exec(url.pathname);
@@ -101,6 +101,15 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
       send(500, { error: "internal", message: "Something went wrong on the server." });
     }
   };
+}
+
+/** The caller's IP for rate limiting; the left-most X-Forwarded-For hop only behind a trusted proxy. */
+export function clientIp(req) {
+  if (config.trustProxy) {
+    const xff = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+    if (xff) return xff;
+  }
+  return req.socket.remoteAddress || "?";
 }
 
 function readJson(req) {

@@ -20,6 +20,8 @@ export const config = {
   port: Number(e.PORT || 8787),
   dataDir: e.DATA_DIR || join(ROOT, "server", "data"),
   allowedOrigin: e.ALLOWED_ORIGIN || "", // only needed if the API is served from another origin
+  // Behind a hosting proxy every request comes from the proxy; trust X-Forwarded-For only then.
+  trustProxy: e.TRUST_PROXY === "1",
   quoteTtlMs: Number(e.QUOTE_TTL_SECONDS || 120) * 1000,
 
   whitechainRpc: e.WHITECHAIN_RPC || "https://rpc.testnet.whitechain.io/",
