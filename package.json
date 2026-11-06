@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "start": "node server/main.js",
+    "start": "node server/final-main.js",
     "preview": "npm run build && npm start",
     "test": "node --test --test-timeout=20000 test/*.test.js",
     "test:contracts": "cd contracts && forge test -vv",
@@ -23,6 +23,7 @@
     "@anthropic-ai/sdk": "^1.6.0",
     "@arkiv-network/sdk": "^1.0.1",
     "@mediapipe/tasks-vision": "1.1.1",
+    "@worldcoin/idkit-core": "4.6.0",
     "jsqr": "^1.4.0",
     "qrcode-generator": "^2.0.4",
     "socket.io": "^4.8.1",

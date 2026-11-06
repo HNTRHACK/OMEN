@@ -34,6 +34,7 @@ export async function enter(browser, url = BASE, { name, outfit, look, viewport 
     else console.log("warning, third-party " + line);
   });
   await page.goto(url);
+  await passGate(page);
   // landing → avatar creator → play
   await page.waitForSelector("#join:not([hidden])", { timeout: 120000 });
   await page.click("#join");
@@ -53,6 +54,17 @@ export async function enter(browser, url = BASE, { name, outfit, look, viewport 
   }
   await page.waitForTimeout(300);
   return { page, logs, ctx };
+}
+
+/**
+ * "Only humans play OMEN": tests run against a dev server started with OMEN_ALLOW_UNVERIFIED_GUEST=1
+ * and take its clearly-labelled UNVERIFIED path (or a session a test set up itself).
+ */
+export async function passGate(page) {
+  await page.waitForSelector("#gate:not([hidden]) #gate-body button", { timeout: 120000 });
+  if (await page.isVisible("#gate-guest")) await page.click("#gate-guest");
+  else await page.click("#gate-wallet:not([disabled]), #gate-nowallet");
+  await page.waitForSelector("#gate", { state: "hidden" });
 }
 
 /**

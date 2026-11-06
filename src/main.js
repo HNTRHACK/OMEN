@@ -27,6 +27,7 @@ import { BOARDS } from "../shared/billboards.js";
 import { PLOTS, SHOP_COLORS } from "../shared/storefronts.js";
 import { initPay } from "./pay/index.js";
 import { createPerf } from "./perf.js";
+import { humanGate } from "./final/gate.js";
 import "./style.css";
 
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1513,14 +1514,15 @@ function frame() {
 
 requestAnimationFrame(frame);
 ui.hideLoading();
-ui.showTitle(!!load(), {
+// Final Block: "Only humans play OMEN" comes before the title.
+humanGate().then(() => ui.showTitle(!!load(), {
   onJoin: (friends) => openCreator(friends),
   onContinue: () => {
     rememberCourier();
     ui.hideTitle();
     startGame(false);
   },
-});
+}));
 
 // Test hook for automated playtests
 window.__omen = {
