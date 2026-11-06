@@ -4,6 +4,18 @@ import { model, instanced, grad } from "./assets.js";
 import { makePlanet, makeSky, mapDir, mapMatrix, placeMap, smoothPath, surfaceMatrix, tangentToward } from "./planet.js";
 import { SPOTS, LANES, AREAS, PROPS, SOLIDS } from "./layout.js";
 
+const PROP_COLLISION_RADII = {
+  well: 1.3,
+  noticeboard: 1,
+  bench: 0.95,
+  signpost: 0.55,
+  market_stall: 1.4,
+  planter: 0.65,
+  crates: 0.85,
+  rocks: 1,
+  string_pole: 0.25,
+};
+
 // Seeded randomness so Blockhaven is the same village every visit.
 function rng(seed) {
   return () => {
@@ -41,7 +53,8 @@ export function buildWorld(scene) {
 
   // colliders (direction + radius in metres) and things the camera shouldn't pass through
   const colliders = [];
-  const solid = (x, z, r) => colliders.push({ dir: mapDir(x, z), r });
+  const solidDir = (dir, r) => colliders.push({ dir: dir.clone().normalize(), r });
+  const solid = (x, z, r) => solidDir(mapDir(x, z), r);
   SOLIDS.forEach(([x, z, r]) => solid(x, z, r));
   const camBlockers = [];
 
@@ -75,10 +88,13 @@ export function buildWorld(scene) {
     // props with face (0,0) look at the plaza centre from where they stand, i.e. face away from it
     const target = fwd || [x * 2, z * 2];
     const placement = mapMatrix(x, z, target[0], target[1], s);
+
     if (name === "signpost") {
       placement.multiply(new THREE.Matrix4().makeRotationY(Math.PI));
     }
+
     add(name, placement);
+    solid(x, z, PROP_COLLISION_RADII[name] * s);
   }
 
   // ---------------------------------------------------------------- houses along the lanes
@@ -118,11 +134,13 @@ export function buildWorld(scene) {
     if (rand() < 0.55) {
       const p = dir.clone().multiplyScalar(R).addScaledVector(fwd, 2.3).addScaledVector(right, 1.3);
       add("planter", surfaceMatrix(p.normalize(), fwd, 0.8));
+      solidDir(p, 0.55);
     }
     if (rand() < 0.45) {
       for (const k of [0, 1]) {
         const p = dir.clone().multiplyScalar(R).addScaledVector(right, (rand() < 0.5 ? -1 : 1) * 2.6).addScaledVector(fwd, 1.2 - k * 2.0);
         add("fence", surfaceMatrix(p.normalize(), right, 1));
+        solidDir(p, 0.75);
       }
     }
   }
@@ -183,7 +201,11 @@ export function buildWorld(scene) {
     const x = Math.cos(a) * r;
     const z = Math.sin(a) * r;
     if (!free(x, z, 0)) continue;
-    trees.bush.push(mapMatrix(x, z, x + rand() - 0.5, z + rand() - 0.5, 0.7 + rand() * 0.5));
+    const fx = x + rand() - 0.5;
+    const fz = z + rand() - 0.5;
+    const scale = 0.7 + rand() * 0.5;
+    trees.bush.push(mapMatrix(x, z, fx, fz, scale));
+    solid(x, z, 0.45 * scale);
   }
   // beyond the village: a forest over the rest of the little planet
   const tmp = new THREE.Vector3();
@@ -195,7 +217,9 @@ export function buildWorld(scene) {
     const fwd = tangentToward(dir, new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5).normalize());
     const roll = rand();
     const kind = roll < 0.55 ? "tree_pine" : roll < 0.85 ? "tree_round" : roll < 0.93 ? "bush" : "rocks";
-    trees[kind].push(surfaceMatrix(dir, fwd, 0.9 + rand() * 0.7));
+    const scale = 0.9 + rand() * 0.7;
+    trees[kind].push(surfaceMatrix(dir, fwd, scale));
+    solidDir(dir, (kind === "rocks" ? 0.75 : kind === "bush" ? 0.45 : 0.25) * scale);
   }
   for (const [k, list] of Object.entries(trees)) for (const m of list) add(k, m);
 
