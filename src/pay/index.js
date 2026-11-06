@@ -65,6 +65,7 @@ export function initPay({ onStage = () => {}, onOpenChange = () => {} } = {}) {
   const payments = store.get("omen.payments.v1", []);
   const deliveries = store.get("omen.deliveries.v1", []);
   let arkivRows = null;
+  let arkivAutoFor = null; // wallet whose Arkiv history we auto-loaded
   let arkivErr = "";
 
   // ------------------------------------------------------------------ shell
@@ -116,7 +117,15 @@ export function initPay({ onStage = () => {}, onOpenChange = () => {} } = {}) {
     if (focus) (body.querySelector("[autofocus]") || body.querySelector("button, input, select"))?.focus({ preventScroll: true });
   }
   const loadCfg = async () => (cfg ||= await api("/config").catch((e) => ({ error: e.message })));
-  wallet.onChange(() => isOpen() && view === "wallet" && renderWallet());
+  let lastWallet = null;
+  wallet.onChange(() => {
+    if (wallet.address !== lastWallet) {
+      lastWallet = wallet.address;
+      arkivRows = null; // another wallet: its own records, not the previous one's
+      arkivAutoFor = null;
+    }
+    if (isOpen() && view === "wallet") renderWallet();
+  });
 
   // ------------------------------------------------------------------ wallet panel
   async function openWallet() {
@@ -323,6 +332,11 @@ export function initPay({ onStage = () => {}, onOpenChange = () => {} } = {}) {
         renderHistory();
       },
     });
+    // After a refresh, the wallet-owned records come straight back from Arkiv.
+    if (wallet.address && arkivRows === null && arkivAutoFor !== wallet.address) {
+      arkivAutoFor = wallet.address;
+      body.querySelector("[data-act=arkivLoad]")?.click();
+    }
   }
 
   function histItem(p) {
