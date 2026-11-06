@@ -28,6 +28,8 @@ import { PLOTS, SHOP_COLORS } from "../shared/storefronts.js";
 import { initPay } from "./pay/index.js";
 import { createPerf } from "./perf.js";
 import { humanGate } from "./final/gate.js";
+import { tutorialPayment } from "./final/tutorial-pay.js";
+import { showChaiReceipt } from "./final/receipt.js";
 import "./style.css";
 
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -299,7 +301,10 @@ async function talkMaya() {
       audio.chime([0, 7]);
       await line("MAYA", maya, "A block signed by... nobody? Who rewrites a tea seller's payment?");
       maya.holding = false;
-      await line("MAYA", maya, "Wait. Look at the ledger. With Relay 03 back, Ravi's payment just went through. Confirmed!");
+      await line("MAYA", maya, "Wait. Look at the ledger. With Relay 03 back, Ravi's payment just went through. Confirmed! (story ledger, simulated)");
+      // Final Block: the lesson ends with KAI paying for real (Whitechain Sepolia testnet), or a labelled simulation.
+      const paid = await tutorialPayment((who, text, opts) => line(who, who === "MAYA" ? maya : who === "KAI" ? kai : null, text, opts));
+      showChaiReceipt(paid);
       celebrate();
       await line("MAYA", maya, "Lanterns tonight after all! Tea's on me for a week, KAI. Maybe two.");
       give("tea");

@@ -278,3 +278,10 @@ button { font: inherit; color: inherit; }
 .gate-badge.ok { color: #2f7a4b; border-color: #2f7a4b; background: #d8f1e2; }
 .gate-badge.staging { color: #8a5a1c; border-color: #b8862f; background: #fff2cc; }
 #gate code { font-size: 13px; background: #f1e6d2; padding: 1px 5px; border-radius: 5px; }
+#chai-receipt { position: fixed; z-index: 12; right: 16px; top: 76px; width: min(320px, calc(100vw - 32px)); display: grid; gap: 2px; padding: 10px 34px 10px 14px; background: var(--paper); border: 3px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 var(--ink); font-size: 15px; }
+#chai-receipt.live { background: #d8f1e2; }
+#chai-receipt.sim { background: #fff2cc; }
+#chai-receipt b { font-family: var(--display); }
+#chai-receipt a { color: var(--teal); font-weight: 700; }
+#chai-receipt small { color: var(--muted); font-size: 12px; }
+#chai-receipt button { position: absolute; top: 4px; right: 8px; border: 0; background: none; font-size: 20px; cursor: pointer; }
