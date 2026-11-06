@@ -1,6 +1,16 @@
 import * as THREE from "three";
 import { model } from "./assets.js";
 
+/** Courier outfits (jacket, cap) from the game's palette. 0 is KAI's original look. */
+export const OUTFITS = [
+  { name: "Courier teal", jacket: 0x3e8e8a, cap: 0xc8473d },
+  { name: "Brick", jacket: 0xb85c4a, cap: 0xf3d98b },
+  { name: "Slate", jacket: 0x5f7d99, cap: 0xc8473d },
+  { name: "Leaf", jacket: 0x5e9a5b, cap: 0xf3d98b },
+  { name: "Plum", jacket: 0x7d5a8c, cap: 0x7fc4bc },
+  { name: "Mustard", jacket: 0xc99a3c, cap: 0x2f3e5c },
+];
+
 const damp = (cur, target, k) => cur + (target - cur) * k;
 
 /**
@@ -8,10 +18,10 @@ const damp = (cur, target, k) => cur + (target - cur) * k;
  * animation: walk / run cycles, idle breathing, talking gestures, waves, cheers, jump poses.
  */
 export class Character {
-  constructor(name) {
+  constructor(name, { unique = false } = {}) {
     this.name = name;
     this.group = new THREE.Group(); // positioned on the planet by its controller
-    this.rig = model(name);
+    this.rig = model(name, { uniqueMaterials: unique }); // unique: this character can be recoloured alone
     this.group.add(this.rig);
     const get = (n) => this.rig.getObjectByName(n);
     this.p = { legL: get("legL"), legR: get("legR"), body: get("body"), head: get("head"), armL: get("armL"), armR: get("armR") };
@@ -122,6 +132,17 @@ export class Character {
   get baseScale() {
     if (!this._bs) this._bs = this.rig.scale.clone();
     return this._bs;
+  }
+
+  /** Recolour jacket + cap (needs `unique` materials, so no other character changes). */
+  setOutfit(i) {
+    const o = OUTFITS[((i % OUTFITS.length) + OUTFITS.length) % OUTFITS.length];
+    this.outfit = OUTFITS.indexOf(o);
+    this.rig.traverse((m) => {
+      if (!m.isMesh) return;
+      if (m.material.name === "teal") m.material.color.setHex(o.jacket);
+      else if (m.material.name === "red") m.material.color.setHex(o.cap);
+    });
   }
 
   /** World position of a point in the character's local space (e.g. hands, head). */

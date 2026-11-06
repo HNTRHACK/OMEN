@@ -4,7 +4,8 @@ import { loadAll } from "./assets.js";
 import { buildWorld } from "./world.js";
 import { mapDir, tangentToward } from "./planet.js";
 import { SPOTS } from "./layout.js";
-import { Character } from "./character.js";
+import { Character, OUTFITS } from "./character.js";
+import { createNet, roomFromUrl, newRoomCode, inviteUrl } from "./net.js";
 import { Mover, CameraRig } from "./player.js";
 import { InkPass } from "./post.js";
 import { Envelope, Particles, Smoke, Birds, flying } from "./fx.js";
@@ -74,7 +75,7 @@ const smoke = new Smoke(scene, [
 
 // ------------------------------------------------------------------ characters
 
-const kai = new Character("kai");
+const kai = new Character("kai", { unique: true }); // unique materials: outfits recolour only KAI
 scene.add(kai.group);
 kai.stepCb = (s) => audio.step(s);
 
@@ -182,6 +183,7 @@ let busy = false;
 const headOf = (c) => c.local(0, 1.75, 0);
 
 async function converse(npc, fn) {
+  net.act("talk", npc.name);
   clearHeldKeys();
   busy = true;
   mover.enabled = false;
@@ -310,6 +312,7 @@ async function talkOrin() {
 }
 
 async function useRelay() {
+  net.act("talk", "relay");
   busy = true;
   mover.enabled = false;
   try {
@@ -377,6 +380,7 @@ async function talkEcho() {
 }
 
 async function readBoard() {
+  net.act("talk", "board");
   busy = true;
   mover.enabled = false;
   try {
@@ -443,6 +447,7 @@ qrSign("maya-chai", W.hero.chai, new THREE.Vector3(2.35, 0, 3.6), new THREE.Vect
 qrSign("orin-relay", W.hero.workshop, new THREE.Vector3(3.3, 0, 4.2), new THREE.Vector3(3.3, 0, 12));
 
 function startScan(merchantId) {
+  net.act("scan", merchantId);
   const s = signs[merchantId];
   mover.face(s.at);
   particles.burst(s.top(), "spark", 14, 1.5);
@@ -508,6 +513,7 @@ async function journey(stage, co) {
     relayFlash = Math.max(relayFlash, 1.4);
     await coin.fly(coinAt || crystalPos(), npc.local(0.2, 1.3, 0.3), { height: 4, duration: 1.2 });
   } else if (stage === "done") {
+    if (p?.merchant?.id) net.act("paid", p.merchant.id); // others see "X paid Maya": no amount, no address
     audio.chime([0, 4, 7, 12], 0.09);
     npc.cheer = 1.4;
     kai.cheer = 0.8;
@@ -608,6 +614,7 @@ function titleCam(t) {
 
 function startGame(fresh) {
   audio.start();
+  kai.setOutfit(courier.outfit);
   if (fresh) {
     try {
       localStorage.removeItem("omen.save");
@@ -652,6 +659,109 @@ async function beginPlay(fresh) {
   }
   mover.enabled = true;
   save();
+  pill.hidden = false; // solo players need the Invite button too
+  if (courier.room) joinRoom(courier.room);
+  else pill.querySelector(".count").textContent = "Solo";
+}
+
+// ------------------------------------------------------------------ multiplayer
+
+const courier = { name: "", outfit: 0, room: roomFromUrl() };
+try {
+  Object.assign(courier, JSON.parse(localStorage.getItem("omen.courier") || "{}"), { room: roomFromUrl() });
+} catch {
+  /* ignore */
+}
+const feedEl = Object.assign(document.createElement("ul"), { id: "feed" });
+feedEl.setAttribute("aria-live", "polite");
+document.body.append(feedEl);
+function feed(text) {
+  const li = document.createElement("li");
+  li.textContent = text;
+  feedEl.append(li);
+  while (feedEl.children.length > 4) feedEl.firstChild.remove();
+  setTimeout(() => li.classList.add("fade"), 5200);
+  setTimeout(() => li.remove(), 5900);
+}
+const pill = Object.assign(document.createElement("div"), { id: "mp-pill", hidden: true });
+pill.innerHTML = `<span class="dot" aria-hidden="true"></span><span class="count"></span><span class="room"></span><button type="button">Invite</button>`;
+document.getElementById("hud").append(pill);
+pill.querySelector("button").onclick = async () => {
+  if (!net.room) {
+    courier.room = newRoomCode();
+    history.replaceState(null, "", `?room=${courier.room}`);
+    joinRoom(courier.room);
+  }
+  const url = inviteUrl(net.room);
+  try {
+    await navigator.clipboard.writeText(url);
+    ui.toast(`Invite link copied: ${url}`, 5000);
+  } catch {
+    ui.toast(`Invite link: ${url}`, 8000);
+  }
+};
+const net = createNet({
+  scene,
+  camera,
+  feed,
+  local: () => ({ d: mover.dir.toArray(), f: mover.fwd.toArray(), h: mover.h, sp: mover.speed, air: !mover.grounded, talk: kai.talk > 0, hold: !!kai.holding }),
+  onCount: ({ room, online, connected }) => {
+    pill.hidden = false;
+    pill.classList.toggle("on", connected);
+    pill.querySelector(".count").textContent = room ? `${online} online` : "Solo";
+    pill.querySelector(".room").textContent = room ? `· ${room}` : "";
+  },
+});
+function joinRoom(room) {
+  net.join({ room, name: courier.name || "Courier", outfit: courier.outfit });
+}
+
+// title screen: name, outfit, room
+{
+  const nameEl = document.getElementById("mp-name");
+  nameEl.value = courier.name || "";
+  const box = document.querySelector("#courier .outfits");
+  box.innerHTML = OUTFITS.map((o, i) => `<button type="button" class="outfit" role="radio" aria-label="${o.name}" title="${o.name}" data-i="${i}" style="background:#${o.jacket.toString(16).padStart(6, "0")};--cap:#${o.cap.toString(16).padStart(6, "0")}"></button>`).join("");
+  const pick = (i) => {
+    courier.outfit = i;
+    box.querySelectorAll(".outfit").forEach((b) => b.setAttribute("aria-checked", String(Number(b.dataset.i) === i)));
+    kai.setOutfit(i);
+  };
+  box.onclick = (e) => e.target.closest(".outfit") && pick(Number(e.target.closest(".outfit").dataset.i));
+  box.onkeydown = (e) => {
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      e.preventDefault();
+      pick((courier.outfit + (e.key === "ArrowRight" ? 1 : OUTFITS.length - 1)) % OUTFITS.length);
+      box.querySelector(`[data-i="${courier.outfit}"]`).focus();
+    }
+  };
+  pick(courier.outfit || 0);
+  const remember = () => {
+    courier.name = nameEl.value.trim().slice(0, 16);
+    try {
+      localStorage.setItem("omen.courier", JSON.stringify({ name: courier.name, outfit: courier.outfit }));
+    } catch {
+      /* ignore */
+    }
+  };
+  nameEl.addEventListener("input", remember);
+  box.addEventListener("click", remember);
+  const roomNote = document.getElementById("mp-room");
+  if (courier.room) {
+    roomNote.hidden = false;
+    roomNote.querySelector("b").textContent = courier.room;
+    document.getElementById("friends").hidden = true;
+  }
+  document.getElementById("friends").onclick = () => {
+    remember();
+    courier.room = newRoomCode();
+    history.replaceState(null, "", `?room=${courier.room}`);
+    // Continue an existing save rather than wiping it; the room is joined once play begins.
+    const cont = document.getElementById("continue");
+    (cont.hidden ? document.getElementById("start") : cont).click();
+  };
+  document.getElementById("start").addEventListener("click", remember, { capture: true });
+  document.getElementById("continue").addEventListener("click", remember, { capture: true });
 }
 
 // ------------------------------------------------------------------ loop
@@ -689,6 +799,7 @@ function frame() {
   }
 
   kai.update(dt, t);
+  if (mode === "play") net.update(dt, t);
   maya.update(dt, t);
   orin.update(dt, t);
   if (echo.group.visible) echo.update(dt, t);
@@ -756,6 +867,8 @@ window.__omen = {
   startScan,
   camera,
   ui,
+  net,
+  courier,
   get mode() {
     return mode;
   },

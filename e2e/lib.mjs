@@ -12,7 +12,7 @@ export async function launch() {
 }
 
 /** Open the game, start fresh, skip the intro lines. Returns { page, logs, ctx }. */
-export async function enter(browser, url = BASE, { name, viewport = { width: 1280, height: 800 } } = {}) {
+export async function enter(browser, url = BASE, { name, outfit, viewport = { width: 1280, height: 800 } } = {}) {
   const ctx = await browser.newContext({ viewport });
   const page = await ctx.newPage();
   const logs = [];
@@ -21,6 +21,7 @@ export async function enter(browser, url = BASE, { name, viewport = { width: 128
   await page.goto(url);
   await page.waitForSelector("#start:not([hidden])", { timeout: 120000 });
   if (name && (await page.$("#mp-name"))) await page.fill("#mp-name", name);
+  if (outfit != null) await page.click(`.outfit[data-i="${outfit}"]`);
   await page.click("#start");
   await page.waitForFunction(() => window.__omen?.mode === "play", null, { timeout: 60000 });
   for (let i = 0; i < 8 && (await page.isVisible("#dialogue")); i++) {

@@ -6,8 +6,11 @@ const gateway = () => ({
   name: "omen-gateway",
   async configureServer(server) {
     // Plain Node import: the gateway is ordinary server code, not something Vite should transform.
-    const { createGateway, logStatus } = await import(new URL("./server/index.js", import.meta.url).href);
-    const handle = createGateway();
+    const { createGateway, createNotifier, logStatus } = await import(new URL("./server/index.js", import.meta.url).href);
+    const notifier = createNotifier();
+    const handle = createGateway({ onChange: notifier.onChange });
+    // Socket.IO (multiplayer + merchant notifications) rides on Vite's own HTTP server.
+    if (server.httpServer) notifier.attach(server.httpServer);
     logStatus("mounted at /api (dev)");
     server.middlewares.use((req, res, next) => (req.url.startsWith("/api/") ? handle(req, res) : next()));
   },

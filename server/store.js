@@ -36,6 +36,9 @@ export class Store {
     const a = String(addr).toLowerCase();
     return [...this.items.values()].filter((p) => p.payer?.toLowerCase() === a).sort((x, y) => y.createdAt - x.createdAt);
   }
+  byMerchant(id) {
+    return [...this.items.values()].filter((p) => p.merchant?.id === id).sort((x, y) => y.createdAt - x.createdAt);
+  }
   flush() {
     if (!this.file) return;
     const tmp = this.file + ".tmp";

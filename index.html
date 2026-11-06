@@ -30,9 +30,15 @@
   <!-- Title -->
   <section id="title" hidden aria-label="OMEN: The Last Block">
     <h1 class="logo"><span>OMEN</span><small>the last block</small></h1>
+    <form class="courier-card" id="courier" onsubmit="return false" aria-label="Your courier">
+      <label class="cc-name">Courier name <input id="mp-name" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="KAI"></label>
+      <div class="outfits" role="radiogroup" aria-label="Outfit"></div>
+      <p id="mp-room" class="cc-room" hidden>Joining room <b></b> with friends</p>
+    </form>
     <div class="title-actions">
       <button id="continue" class="btn" type="button" hidden>Continue</button>
       <button id="start" class="btn" type="button">Start</button>
+      <button id="friends" class="btn ghost" type="button">Play with friends</button>
     </div>
     <p class="title-note">A small story game. The story's blocks are simulated. Payments use Whitechain <b>testnet</b> USDT or <b>DEMO</b> credits; rupee payouts are <b>simulated</b>.</p>
   </section>

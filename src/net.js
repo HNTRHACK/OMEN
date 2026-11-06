@@ -1,0 +1,189 @@
+// Multiplayer client. Other couriers appear as real characters in the same Blockhaven, smoothly
+// interpolated ~120 ms behind real time, with name tags and a small activity feed.
+// Only movement, outfit, name and whitelisted interactions are shared. Never wallets or payments.
+import * as THREE from "three";
+import { io } from "socket.io-client";
+import { R } from "./palette.js";
+import { Character } from "./character.js";
+
+const SEND_HZ = 12;
+const DELAY_MS = 120; // render remotes this far in the past, between two received snapshots
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+export const roomFromUrl = () => {
+  const r = new URLSearchParams(location.search).get("room");
+  return r && /^[a-z0-9][a-z0-9-]{2,23}$/.test(r.toLowerCase()) ? r.toLowerCase() : null;
+};
+export function newRoomCode() {
+  const words = ["chai", "relay", "lantern", "courier", "kettle", "plaza", "lookout", "festival"];
+  const w = words[crypto.getRandomValues(new Uint32Array(1))[0] % words.length];
+  return `${w}-${Array.from(crypto.getRandomValues(new Uint8Array(3)), (b) => (b % 36).toString(36)).join("")}`;
+}
+export const inviteUrl = (room) => `${location.origin}${location.pathname}?room=${room}`;
+
+class Remote {
+  constructor(scene, p) {
+    this.id = p.id;
+    this.name = p.name;
+    this.c = new Character("kai", { unique: true });
+    this.c.setOutfit(p.outfit);
+    scene.add(this.c.group);
+    this.buf = []; // { t (local receive time), d, f, h, sp, air, talk, hold }
+    this.tag = document.createElement("div");
+    this.tag.className = "nametag";
+    this.tag.innerHTML = `<span class="sw o${p.outfit}"></span>${esc(p.name)}`;
+    document.body.append(this.tag);
+    this.c.group.visible = false;
+    if (p.s) this.push(p.s);
+  }
+  push(s) {
+    this.buf.push({ ...s, t: performance.now() });
+    if (this.buf.length > 30) this.buf.shift();
+  }
+  update(dt, t, camera) {
+    const now = performance.now() - DELAY_MS;
+    const b = this.buf;
+    if (!b.length) return;
+    let i = b.length - 1;
+    while (i > 0 && b[i - 1].t > now) i--;
+    const a = b[Math.max(0, i - 1)];
+    const c = b[i];
+    const k = c.t === a.t ? 1 : THREE.MathUtils.clamp((now - a.t) / (c.t - a.t), 0, 1);
+    const d = new THREE.Vector3().fromArray(a.d).lerp(new THREE.Vector3().fromArray(c.d), k).normalize();
+    const f = new THREE.Vector3().fromArray(a.f).lerp(new THREE.Vector3().fromArray(c.f), k);
+    f.sub(d.clone().multiplyScalar(f.dot(d))).normalize();
+    const h = a.h + (c.h - a.h) * k;
+    const g = this.c.group;
+    g.visible = true;
+    g.position.copy(d).multiplyScalar(R + h);
+    g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3().crossVectors(d, f), d, f));
+    this.c.speed = c.sp;
+    this.c.air = c.air;
+    this.c.talk = c.talk ? 1 : 0;
+    this.c.holding = c.hold;
+    this.c.update(dt, t);
+    // name tag over the head, hidden behind the camera or far away
+    const head = g.localToWorld(new THREE.Vector3(0, 2.25, 0));
+    const v = head.clone().project(camera);
+    const far = head.distanceTo(camera.position) > 45;
+    if (v.z > 1 || far) this.tag.hidden = true;
+    else {
+      this.tag.hidden = false;
+      this.tag.style.transform = `translate(${((v.x + 1) / 2) * innerWidth}px, ${((1 - v.y) / 2) * innerHeight}px) translate(-50%, -100%)`;
+    }
+  }
+  remove(scene) {
+    scene.remove(this.c.group);
+    this.tag.remove();
+  }
+}
+
+/**
+ * @param o.scene, o.camera
+ * @param o.local()  → { d, f, h, sp, air, talk, hold } for the local courier
+ * @param o.feed(text) shows an activity line
+ */
+export function createNet({ scene, camera, local, feed, onCount = () => {} }) {
+  let sock = null;
+  let room = null;
+  let me = null;
+  const remotes = new Map();
+  let last = "";
+  let sendT = 0;
+  let beat = 0;
+  const resumeKey = () => `omen.player.${room}`;
+
+  const count = () => onCount({ room, online: remotes.size + 1, connected: !!sock?.connected });
+  const add = (p) => {
+    if (remotes.has(p.id) || p.id === me) return;
+    remotes.set(p.id, new Remote(scene, p));
+  };
+
+  function join({ room: r, name, outfit }) {
+    room = r;
+    sock?.close();
+    sock = io("/world", { transports: ["websocket", "polling"], reconnectionDelayMax: 4000 });
+    const hello = () =>
+      sock.emit("join", { room, name, outfit, resume: sessionStorage.getItem(resumeKey()) || undefined }, (res) => {
+        if (res?.error) return feed(res.error);
+        const resumed = res.id === me;
+        me = res.id;
+        try {
+          sessionStorage.setItem(resumeKey(), me);
+        } catch {
+          /* ignore */
+        }
+        // after a reconnect, the server's list is the truth: drop anyone who left meanwhile
+        const ids = new Set(res.players.map((p) => p.id));
+        for (const [id, rm] of remotes) if (!ids.has(id)) (rm.remove(scene), remotes.delete(id));
+        res.players.forEach(add);
+        if (!resumed) feed(res.players.length ? `You joined ${res.players.length} other courier${res.players.length > 1 ? "s" : ""} in room ${room}` : `Room ${room} is open. Share the invite link!`);
+        last = "";
+        count();
+      });
+    sock.on("connect", hello);
+    sock.on("disconnect", () => {
+      feed("Connection lost, reconnecting…");
+      count();
+    });
+    sock.on("joined", (p) => {
+      add(p);
+      feed(`${p.name} joined Blockhaven`);
+      count();
+    });
+    sock.on("left", (p) => {
+      remotes.get(p.id)?.remove(scene);
+      remotes.delete(p.id);
+      feed(`${p.name} left`);
+      count();
+    });
+    sock.on("state", (s) => remotes.get(s.id)?.push(s));
+    sock.on("act", (a) => {
+      const rm = remotes.get(a.id);
+      if (!rm) return;
+      const who = rm.name;
+      const text = {
+        talk: { maya: "is talking to Maya", orin: "is talking to Orin", echo: "is talking to the stranger", relay: "is examining Relay 03", board: "is reading the notice board" },
+        scan: { "maya-chai": "is scanning Maya's QR", "orin-relay": "is scanning Orin's QR" },
+        paid: { "maya-chai": "paid Maya", "orin-relay": "paid Orin" },
+        coin: { btc: "found Bitcoin", eth: "found Ethereum", sol: "found Solana", usdt: "found Tether", usdc: "found USD Coin", wbt: "found WhiteBIT Coin" },
+      }[a.kind]?.[a.target];
+      if (a.kind === "paid" || a.kind === "cheer") rm.c.cheer = 1.2;
+      if (a.kind === "wave") rm.c.wave = 1.2;
+      if (text) feed(`${who} ${text}`);
+    });
+  }
+
+  return {
+    join,
+    get room() {
+      return room;
+    },
+    get online() {
+      return remotes.size + 1;
+    },
+    remotes,
+    act(kind, target = "") {
+      if (sock?.connected) sock.emit("act", { kind, target });
+    },
+    update(dt, t) {
+      for (const r of remotes.values()) r.update(dt, t, camera);
+      if (!sock?.connected) return;
+      sendT += dt;
+      beat += dt;
+      if (sendT < 1 / SEND_HZ) return;
+      sendT = 0;
+      const s = local();
+      const key = JSON.stringify([s.d.map((x) => x.toFixed(4)), s.f.map((x) => x.toFixed(3)), s.h.toFixed(2), s.sp.toFixed(1), s.air, s.talk, s.hold]);
+      if (key === last && beat < 1) return; // nothing changed: stay quiet (heartbeat each second)
+      last = key;
+      beat = 0;
+      sock.volatile.emit("state", s);
+    },
+    leave() {
+      sock?.close();
+      for (const r of remotes.values()) r.remove(scene);
+      remotes.clear();
+    },
+  };
+}
