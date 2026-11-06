@@ -250,6 +250,8 @@ export function bindInput(input, { onAct, onOrbit }) {
     drag = { x: e.clientX, y: e.clientY };
   });
   canvas.addEventListener("pointerup", () => (drag = null));
+  canvas.addEventListener("pointercancel", () => (drag = null));
+  canvas.addEventListener("lostpointercapture", () => (drag = null));
 
   // touch: joystick on the left, swipe to look on the right, act + jump buttons
   const pad = $("#joy");
@@ -289,6 +291,7 @@ export function bindInput(input, { onAct, onOrbit }) {
   };
   pad.addEventListener("pointerup", end);
   pad.addEventListener("pointercancel", end);
+  pad.addEventListener("lostpointercapture", end);
   let look = null;
   $("#look").addEventListener("pointerdown", (e) => {
     look = { id: e.pointerId, x: e.clientX, y: e.clientY };
@@ -300,7 +303,10 @@ export function bindInput(input, { onAct, onOrbit }) {
     look.x = e.clientX;
     look.y = e.clientY;
   });
-  $("#look").addEventListener("pointerup", () => (look = null));
+  const endLook = (e) => { if (look?.id === e.pointerId) look = null; };
+  $("#look").addEventListener("pointerup", endLook);
+  $("#look").addEventListener("pointercancel", endLook);
+  $("#look").addEventListener("lostpointercapture", endLook);
   $("#act-btn").onclick = onAct;
   $("#jump-btn").onclick = () => (input.jump = true);
   $("#satchel-btn").onclick = toggleSatchel;
