@@ -171,14 +171,18 @@ ui.say = function say(name, text, { choices = null, tone = "" } = {}) {
         advance();
       }
     };
+    let keyTimer = null;
     const cleanup = () => {
+      clearTimeout(keyTimer);
+      clearInterval(typing);
+      typing = null;
       box.removeEventListener("click", advance);
       removeEventListener("keydown", key);
       if (cleanupPending === cleanup) cleanupPending = null;
     };
     cleanupPending = cleanup;
     box.addEventListener("click", advance);
-    setTimeout(() => addEventListener("keydown", key), 60);
+    keyTimer = setTimeout(() => addEventListener("keydown", key), 60);
     if (reduce) return done();
     const pitch = VOICE[name] || 1;
     typing = setInterval(() => {
