@@ -14,12 +14,16 @@ export const audio = {
   },
 
   start() {
-    if (ctx) return;
+    if (ctx) {
+      if (ctx.state === "suspended") ctx.resume().catch(() => {});
+      return;
+    }
     try {
       ctx = new (window.AudioContext || window.webkitAudioContext)();
     } catch {
       return;
     }
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
     master = ctx.createGain();
     master.gain.value = muted ? 0 : 0.55;
     master.connect(ctx.destination);
@@ -34,6 +38,7 @@ export const audio = {
     } catch {
       /* ignore */
     }
+    if (!muted && ctx?.state === "suspended") ctx.resume().catch(() => {});
     if (master) master.gain.setTargetAtTime(muted ? 0 : 0.55, ctx.currentTime, 0.1);
     return muted;
   },
