@@ -2,7 +2,6 @@
 // Deliberately simple and conservative: it refuses the scams that rob people in crypto spaces,
 // masks common profanity, limits links, and leaves judgement calls to human moderators (reports
 // hide content after REPORT_HIDE distinct reporters until a moderator reviews it).
-import { createHash, timingSafeEqual } from "node:crypto";
 import { clean } from "./commerce.js";
 
 export const REPORT_HIDE = 3;
@@ -62,12 +61,4 @@ export function rateLimiter(perMin, burst = perMin) {
     s.t -= 1;
     return true;
   };
-}
-
-/** Constant-time check of the moderator key (x-mod-key header). */
-export function isModerator(req, key = process.env.MODERATOR_KEY || "") {
-  if (!key || key.length < 12) return false;
-  const got = String(req.headers["x-mod-key"] || "");
-  const h = (s) => createHash("sha256").update(s).digest();
-  return timingSafeEqual(h(got), h(key));
 }

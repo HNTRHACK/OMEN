@@ -3,7 +3,9 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from "
 import { join } from "node:path";
 
 export class Store {
-  constructor(dir) {
+  constructor(dir, { database = null } = {}) {
+    this.database = database;
+    if (database) return;
     this.file = dir ? join(dir, "payments.json") : null;
     this.items = new Map();
     this.usedTx = new Set(); // a tx hash can settle one payment only
@@ -15,6 +17,8 @@ export class Store {
     }
     if (dir) mkdirSync(dir, { recursive: true });
   }
+  get items() { return this.database ? this.database.collection('payments') : this._items; }
+  set items(value) { this._items = value; }
   get(id) {
     return this.items.get(id) || null;
   }
@@ -25,11 +29,13 @@ export class Store {
   }
   claimTx(hash) {
     const h = hash.toLowerCase();
+    if (this.database) return ![...this.items.values()].some((p) => p.txHash?.toLowerCase() === h && p.state !== 'FAILED');
     if (this.usedTx.has(h)) return false;
     this.usedTx.add(h);
     return true;
   }
   releaseTx(hash) {
+    if (this.database) return;
     this.usedTx.delete(hash.toLowerCase());
   }
   byPayer(addr) {
@@ -40,6 +46,7 @@ export class Store {
     return [...this.items.values()].filter((p) => p.merchant?.id === id).sort((x, y) => y.createdAt - x.createdAt);
   }
   flush() {
+    if (this.database) return;
     if (!this.file) return;
     const tmp = this.file + ".tmp";
     writeFileSync(tmp, JSON.stringify([...this.items.values()], null, 1));

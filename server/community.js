@@ -1,6 +1,6 @@
 // The plaza's community layer: forum (threads, replies, reports), billboard ads (upload → review →
 // optional rental → live → expiry) and mutes. Everything persists server-side; live updates go to
-// every connected player. Moderators act with MODERATOR_KEY (moderate.html).
+// every connected player. HTTP moderation requires an authenticated moderator account.
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { Collection } from "./db.js";
@@ -22,18 +22,17 @@ const VIEW_GAP = 5 * 60_000; // one impression per viewer per ad per 5 minutes
 const CLICK_GAP = 30_000;
 const MAX_TRACKED = 5000; // unique viewers/clickers remembered per ad
 
-export function createCommunity({ dir = null, payments = null, notify = { all() {}, player() {} }, now = () => Date.now(), shopLookup = () => null, billboardPayout = process.env.BILLBOARD_PAYOUT || "" } = {}) {
-  const threads = new Collection(dir, "threads");
-  const posts = new Collection(dir, "posts");
-  const ads = new Collection(dir, "ads");
-  const mutes = new Collection(dir, "mutes");
+export function createCommunity({ dir = null, database = null, payments = null, notify = { all() {}, player() {} }, now = () => Date.now(), shopLookup = () => null, billboardPayout = process.env.BILLBOARD_PAYOUT || "" } = {}) {
+  const threads = new Collection(dir, "threads", { database });
+  const posts = new Collection(dir, "posts", { database });
+  const ads = new Collection(dir, "ads", { database });
+  const mutes = new Collection(dir, "mutes", { database });
   const uploads = dir ? join(dir, "uploads") : null;
   const threadRate = rateLimiter(3, 2); // per player per minute
   const postRate = rateLimiter(8, 4);
   const adRate = rateLimiter(2, 2);
   const reportRate = rateLimiter(20, 10);
   const seenRate = rateLimiter(90, 40);
-  const seenAt = new Map(); // "adId:playerId:kind" -> last counted time (memory only; bounded)
 
   const muted = (id) => !!mutes.get(id);
   function speaker(id) {
@@ -197,7 +196,7 @@ export function createCommunity({ dir = null, payments = null, notify = { all() 
     }
     if (ads.where((a) => a.boardId === board.id && a.status === "pending").length >= 6) throw bad("queue_full", "That hoarding has a long review queue. Try another one.", 409);
     if (!adRate(playerId, now())) throw bad("slow_down", "One ad at a time, please.", 429);
-    const img = checked ? storeImage(uploads, checked) : null;
+    const img = checked ? (database ? database.image(uploads, checked) : storeImage(uploads, checked)) : null;
     const a = {
       id: randomUUID(),
       boardId: board.id,
@@ -237,6 +236,10 @@ export function createCommunity({ dir = null, payments = null, notify = { all() 
     if (!a || a.author !== need(playerId)) throw bad("not_found", "No such ad.", 404);
     if (a.status !== "awaiting_rent") throw bad("not_due", "This ad doesn't need rent right now.", 409);
     if (!payments) throw bad("off", "Payments are off.", 503);
+    if (a.rentPaymentId) {
+      const existing = payments.get(a.rentPaymentId);
+      if (!["FAILED", "EXPIRED", "CANCELLED", "BLOCKED"].includes(existing.state)) return { ad: pubAd(a), payment: existing };
+    }
     if (token === "USDT" && !billboardPayout) throw bad("no_payout", "Testnet USDT rental isn't configured (BILLBOARD_PAYOUT). Use DEMO credits.");
     const merchant = { id: "omen-billboards", name: "Blockhaven billboards", key: billboardPayout ? directMerchantId(billboardPayout) : null };
     let p = await payments.createDirect({ merchant, inrPaise: a.days * AD_RENT_PAISE_PER_DAY, note: `${a.days}-day billboard: ${a.title}`, token, market: { adId: a.id, kind: "ad" } });
@@ -258,6 +261,7 @@ export function createCommunity({ dir = null, payments = null, notify = { all() 
       a.endedAt = a.expiresAt;
       ads.put(a);
       changed = true;
+      notify.player(a.author, "ad:update", pubAd(a));
     }
     // An approved ad whose rental is never confirmed must not hold a slot forever.
     for (const a of ads.where((x) => x.status === "awaiting_rent" && (x.decidedAt || x.createdAt) + 2 * DAY <= now())) {
@@ -265,6 +269,7 @@ export function createCommunity({ dir = null, payments = null, notify = { all() 
       a.endedAt = now();
       a.reason = "The rental wasn't confirmed within 48 hours.";
       ads.put(a);
+      changed = true;
       notify.player(a.author, "ad:update", pubAd(a));
     }
     if (changed) notify.all("ads:update", liveAds());
@@ -280,11 +285,12 @@ export function createCommunity({ dir = null, payments = null, notify = { all() 
     const a = ads.get(adId);
     if (!a || !isLive(a)) return { counted: false, reason: "not_live" };
     if (a.author === playerId) return { counted: false, reason: "own_ad" };
-    const key = `${adId}:${playerId}:${kind}`;
+    const key = `${playerId}:${kind}`;
     const t = now();
-    if (t - (seenAt.get(key) || 0) < (kind === "view" ? VIEW_GAP : CLICK_GAP)) return { counted: false, reason: "recent" };
-    if (seenAt.size > 100_000) seenAt.clear(); // bounded memory
-    seenAt.set(key, t);
+    const recent = (a.seenAt ||= {});
+    if (recent[key] !== undefined && t - recent[key] < (kind === "view" ? VIEW_GAP : CLICK_GAP)) return { counted: false, reason: "recent" };
+    for (const [k, at] of Object.entries(recent)) if (t - at >= VIEW_GAP) delete recent[k];
+    recent[key] = t;
     const st = (a.stats ||= { impressions: 0, clicks: 0, viewers: [], clickers: [] });
     const [counter, who] = kind === "view" ? ["impressions", "viewers"] : ["clicks", "clickers"];
     st[counter]++;

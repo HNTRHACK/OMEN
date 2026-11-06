@@ -1,5 +1,5 @@
 # Render blueprint (not deployed automatically: create it from the Render dashboard when ready).
-# One instance only: rooms and merchant sockets live in memory. The disk keeps payment history.
+# One instance only: rooms and sockets live in memory. PostgreSQL holds the economy and uploads.
 services:
   - type: web
     name: omen
@@ -12,6 +12,8 @@ services:
       mountPath: /data
       sizeGB: 1
     envVars:
+      - key: DATABASE_URL
+        sync: false
       - key: TRUST_PROXY
         value: "1"
       - key: CHECKOUT_ADDRESS

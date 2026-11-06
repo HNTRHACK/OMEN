@@ -132,6 +132,7 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
       const resume = !token && typeof msg?.resume === "string" && ID_RE.test(msg.resume) ? msg.resume : null;
       const id = token ? playerIdOf(token) : resume;
       const existing = id ? players.get(id) : null;
+      if (existing?.authenticated && !token) return ack({ error: 'Use your guest token to resume this courier.' });
       if (existing) {
         const ghost = ghosts.get(id);
         if (ghost) {
@@ -145,21 +146,24 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
         if (changed && token) sock.to(room).emit("look", { id: me.id, name: me.name, look: me.look });
       } else {
         if (players.size >= MAX_PER_ROOM) return ack({ error: "This room is full." });
-        me = { id: id || randomBytes(12).toString("hex"), name, look, s: null, room };
+        me = { id: id || randomBytes(12).toString("hex"), name, look, s: null, room, authenticated: !!token };
         players.set(me.id, me);
         sock.to(room).emit("joined", pub(me));
       }
       me.sock = sock.id;
-      sock.data.playerId = me.id; // for per-player notifications (orders, invoices)
+      me.authenticated = !!token;
+      sock.data.playerId = token ? me.id : null; // public resume IDs never authorize private notifications
       sock.join(room);
       ack({ id: me.id, room, players: [...players.values()].filter((p) => p.id !== me.id).map(pub), chat: chatLog.get(room) || [] });
     });
 
     const chatAllow = limiter(0.8, 4); // ~1 message a second, short bursts
-    sock.on("chat", (msg, ack) => {
+    sock.on("chat", async (msg, ack) => {
       const reply = typeof ack === "function" ? ack : () => {};
       if (!me) return reply({ error: "Join the world first." });
-      if (isMuted(me.id)) return reply({ error: "A moderator has muted this courier." });
+      try {
+        if (await isMuted(me.id)) return reply({ error: "A moderator has muted this courier." });
+      } catch { return reply({ error: 'Chat is temporarily unavailable.' }); }
       if (!chatAllow()) return reply({ error: "Slow down a little." });
       const r = moderateText(msg?.text, { max: 160, min: 1, links: 0 });
       if (!r.ok) return reply({ error: r.reason });

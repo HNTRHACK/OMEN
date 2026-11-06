@@ -15,8 +15,9 @@ import { createMarket } from "./market.js";
 import { createCommerce } from "./commerce.js";
 import { playerFromRequest } from "./identity.js";
 import { createCommunity, CATS } from "./community.js";
-import { isModerator } from "./moderation.js";
-import { serveUpload } from "./images.js";
+import { serveUpload, normalizeImage } from "./images.js";
+import { createDatabase } from './postgres.js';
+import { createAuth } from './auth.js';
 import { createAlfred } from "./alfred.js";
 import { MERCHANTS, merchantKey } from "../shared/merchants.js";
 import { WHITECHAIN, USDT } from "../shared/chains.js";
@@ -32,7 +33,7 @@ export function toCsv(rows) {
   return [CSV_COLS.join(","), ...rows.map((r) => CSV_COLS.map((c) => csvCell(c === "createdAt" ? new Date(r.createdAt).toISOString() : r[c])).join(","))].join("\n") + "\n";
 }
 
-export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys(), market = createMarket(), commerce = null, community = null, alfred = null }) {
+export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys(), market = createMarket(), commerce = null, community = null, alfred = null, database = null, auth = null }) {
   const name = (b) => String(b?.name || "").slice(0, 16);
   /** The caller's player id if they sent a valid guest token, else null (moderator-only pages send none). */
   const optionalPlayer = (req) => {
@@ -42,8 +43,9 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
       return null;
     }
   };
-  const modOnly = (req) => {
-    if (!isModerator(req)) throw new ApiError(403, "not_moderator", "Moderators only.");
+  const modOnly = async (req, permission = 'review') => {
+    if (!auth) throw new ApiError(401, 'unauthorized', 'Sign in with a moderator account.');
+    return auth.account(req, permission);
   };
   /** Merchant routes need that merchant's access key: Authorization: Bearer <key>. */
   const merchantOnly = (id, req) => {
@@ -60,6 +62,11 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
   };
 
   const routes = [
+    ...(auth ? [
+      ['POST', /^\/api\/mod\/login$/, async (_, b, req) => auth.login(req, b)],
+      ['POST', /^\/api\/mod\/logout$/, async (_, b, req) => auth.logout(req)],
+      ['GET', /^\/api\/mod\/me$/, async (_, b, req) => ({ account: await modOnly(req) })],
+    ] : []),
     ["GET", /^\/api\/health$/, async () => ({ ok: true })],
     ["GET", /^\/api\/config$/, async () => publicConfig()],
     ["GET", /^\/api\/rates$/, async () => usdtInr()],
@@ -105,8 +112,16 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
           ["GET", /^\/api\/ads\/mine$/, async (_, b, req) => ({ ads: community.myAds(playerFromRequest(req)) })],
           ["POST", /^\/api\/ads$/, async (_, b, req) => community.submitAd(playerFromRequest(req), name(b), b), { maxBody: 1_048_576 }],
           ["POST", /^\/api\/ads\/([\w-]{36})\/rent$/, async ([id], b, req) => community.payRent(playerFromRequest(req), id, b)],
-          ["GET", /^\/api\/mod\/queue$/, async (_, b, req) => (modOnly(req), community.modQueue())],
-          ["POST", /^\/api\/mod$/, async (_, b, req) => (modOnly(req), community.moderate(b, { actor: optionalPlayer(req) }))],
+          ["GET", /^\/api\/mod\/queue$/, async (_, b, req) => { await modOnly(req); return community.modQueue(); }],
+          ["POST", /^\/api\/mod$/, async (_, b, req) => {
+            const account = await modOnly(req, b.action === 'delete' || ['mute', 'unmute'].includes(b.action) ? 'admin' : 'moderate');
+            // Ownership is bound to the account by an operator; the caller cannot omit or forge it.
+            const target = community._db.ads.get(b.id);
+            if (target && (target.author === account.playerId || target.author === optionalPlayer(req))) throw new ApiError(403, 'own_ad', 'Ask another moderator to review your advertisement.');
+            const result = community.moderate(b, { actor: account.playerId });
+            await auth.audit(account, b);
+            return result;
+          }],
         ]
       : []),
     // Alfred, the advisor NPC
@@ -127,22 +142,54 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
   return async function handle(req, res) {
     const url = new URL(req.url, "http://x");
     const send = (status, body) => {
+      const cookie = body?.__cookie;
+      if (cookie) { body = { ...body }; delete body.__cookie; }
+      const playerToken = String(req.headers['x-omen-token'] || '');
+      // Browser <img> requests cannot attach x-omen-token. Set a narrowly scoped media cookie
+      // after an authenticated advertiser request, without changing the frontend API.
+      const mediaCookie = /^[a-f0-9]{64}$/.test(playerToken) && url.pathname.startsWith('/api/ads')
+        ? `omen_media=${playerToken}; Path=/uploads/; HttpOnly; SameSite=Strict; Max-Age=28800${process.env.NODE_ENV === 'production' ? '; Secure' : ''}` : null;
       res.writeHead(status, {
         "content-type": "application/json; charset=utf-8",
         "cache-control": "no-store",
         "x-content-type-options": "nosniff",
+        ...(cookie || mediaCookie ? { 'set-cookie': [cookie, mediaCookie].filter(Boolean) } : {}),
         ...(config.allowedOrigin ? { "access-control-allow-origin": config.allowedOrigin, vary: "origin" } : {}),
       });
       res.end(JSON.stringify(body));
     };
+    if (url.pathname.startsWith('/uploads/') && database) {
+      try {
+        const name = url.pathname.slice(9);
+        const upload = await database.transaction(async () => {
+          if (!/^[a-f0-9]{32}\.(png|jpg)$/.test(name) || !['GET', 'HEAD'].includes(req.method)) return null;
+          let moderator = false;
+          try { moderator = !!(await modOnly(req)); } catch (e) { if (![401, 403].includes(e.status)) throw e; }
+          const mediaToken = /(?:^|;\s*)omen_media=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie || '')?.[1];
+          const owner = optionalPlayer(req) || (mediaToken ? playerFromRequest({ headers: { 'x-omen-token': mediaToken } }) : null);
+          const allowed = community._db.ads.where((a) => a.image === name && (moderator || a.author === owner || (a.status === 'live' && !a.hidden && a.expiresAt > Date.now()))).length;
+          if (!allowed) return null;
+          return (await database.state().client.query('SELECT content_type,bytes FROM uploads WHERE name=$1', [name])).rows[0];
+        });
+        if (!upload) return send(404, { error: 'not_found', message: 'Image not found.' });
+        res.writeHead(200, { 'content-type': upload.content_type, 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
+        return res.end(req.method === 'HEAD' ? undefined : upload.bytes);
+      } catch (e) { console.error('Image lookup failed:', e.code); return send(503, { error: 'unavailable', message: 'Image storage unavailable.' }); }
+    }
     if (url.pathname.startsWith("/uploads/")) return serveUpload(community?.uploadsDir, url.pathname.slice(9), res);
     if (!url.pathname.startsWith("/api/")) return serveStatic(url.pathname, res);
     if (req.method === "OPTIONS" && config.allowedOrigin) {
-      res.writeHead(204, { "access-control-allow-origin": config.allowedOrigin, "access-control-allow-methods": "GET,POST", "access-control-allow-headers": "content-type" });
+      res.writeHead(204, { "access-control-allow-origin": config.allowedOrigin, "access-control-allow-methods": "GET,POST", "access-control-allow-headers": "content-type,authorization,x-omen-token,x-mod-key", vary: 'origin' });
       return res.end();
     }
     if (limited(clientIp(req))) return send(429, { error: "rate_limited", message: "Too many requests. Slow down a little." });
     try {
+      req.omenClientIp = clientIp(req);
+      if (req.method === 'POST' && req.headers.origin) {
+        let origin;
+        try { origin = new URL(req.headers.origin); } catch { throw new ApiError(403, 'bad_origin', 'This origin is not allowed.'); }
+        if (!['http:', 'https:'].includes(origin.protocol) || (origin.host !== req.headers.host && origin.origin !== config.allowedOrigin)) throw new ApiError(403, 'bad_origin', 'This origin is not allowed.');
+      }
       for (const [m, re, fn, opts] of routes) {
         const match = re.exec(url.pathname);
         if (!match || m !== req.method) continue;
@@ -151,7 +198,23 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
           if (!/^application\/json/.test(req.headers["content-type"] || "")) throw new ApiError(415, "json_only", "Send JSON.");
           body = await readJson(req, opts?.maxBody);
         }
-        const out = await fn(match.slice(1), body, req, url);
+        if (database && req.method === 'POST' && url.pathname === '/api/ads' && body.image) {
+          if (!playerFromRequest(req)) throw new ApiError(401, 'no_identity', 'Join the world first.');
+          body.image = await normalizeImage(body.image);
+        }
+        const invoke = async () => {
+          // Ad rental payment records are private even through the generic checkout endpoints.
+          if (database && url.pathname.startsWith('/api/payments/')) {
+            const p = store?.get(match[1]);
+            if (p?.market?.adId) {
+              const ad = community._db.ads.get(p.market.adId);
+              if (!ad || ad.author !== playerFromRequest(req)) throw new ApiError(404, 'not_found', 'No such payment.');
+            }
+          }
+          return fn(match.slice(1), body, req, url);
+        };
+        const out = database ? await database.transaction(invoke) : await invoke();
+        if (out?.__error) return send(out.__error.status, { error: out.__error.error, message: out.__error.message });
         if (out?.__raw) {
           res.writeHead(200, { "content-type": out.__raw.type, "content-disposition": `attachment; filename="${out.__raw.name}"`, "cache-control": "no-store", "x-content-type-options": "nosniff" });
           return res.end(out.__raw.body);
@@ -219,8 +282,13 @@ async function serveStatic(path, res) {
 // ------------------------------------------------------------------ start
 
 /** The real gateway (store, live rates, 0G, Whitechain verification) as a request handler. */
-export function createGateway({ onChange = () => {}, notify = { player() {}, all() {} } } = {}) {
-  const store = new Store(config.dataDir);
+export function createGateway({ onChange = () => {}, notify = { player() {}, all() {} }, database = createDatabase(config.databaseUrl), legacyDir = config.dataDir } = {}) {
+  const store = new Store(null, { database });
+  const liveNotify = notify;
+  notify = Object.fromEntries(['player', 'all'].map((method) => [method, (...args) => {
+    const snapshot = structuredClone(args);
+    database.defer(() => liveNotify[method](...snapshot));
+  }]));
   const relayer = createRelayer();
   let commerce = null; // set below; payment changes also settle marketplace orders
   let community = null; // and billboard rentals
@@ -233,15 +301,17 @@ export function createGateway({ onChange = () => {}, notify = { player() {}, all
     checkoutAddress: () => config.checkoutAddress,
     relayer,
     onChange: (p) => {
-      onChange(p);
       commerce?.onPayment(p);
       community?.onPayment(p);
+      const snapshot = structuredClone(p);
+      database.defer(() => onChange(snapshot));
     },
     quoteTtlMs: config.quoteTtlMs,
   });
-  commerce = createCommerce({ dir: config.dataDir, payments: service, notify });
+  commerce = createCommerce({ database, payments: service, notify });
   community = createCommunity({
     dir: config.dataDir,
+    database,
     payments: service,
     notify,
     // Ads may point at a stall: look it up live, so a closed stall stops being linked.
@@ -251,7 +321,8 @@ export function createGateway({ onChange = () => {}, notify = { player() {}, all
       return s ? { id: s.id, name: s.name, owner: s.owner || null } : null;
     },
   });
-  setInterval(() => (commerce.sweep(), community.sweep()), 30_000).unref();
+  const sweeper = setInterval(() => database.transaction(() => { commerce.sweep(); community.sweep(); }).catch((e) => console.error('Economy sweep failed:', e.code)), 30_000);
+  sweeper.unref();
   const publicConfig = () => ({
     whitechain: { ...WHITECHAIN, rpc: undefined },
     usdt: USDT,
@@ -264,11 +335,23 @@ export function createGateway({ onChange = () => {}, notify = { player() {}, all
     inrPayout: "simulated",
   });
   const alfred = createAlfred({ zgInfer: zgStatus().configured ? (m) => infer(m) : null });
-  const app = createApp({ service, publicConfig, store, commerce, community, alfred });
+  const handle = createApp({ service, publicConfig, store, commerce, community, alfred, database, auth: createAuth(database) });
+  const ready = database.verifyReady(legacyDir);
+  ready.catch(() => {}); // start() or the request handler reports startup failures
+  const app = async (req, res) => {
+    try { await ready; }
+    catch { res.writeHead(503, { 'content-type': 'application/json', 'cache-control': 'no-store' }); return res.end(JSON.stringify({ error: 'backend_not_ready', message: 'Database migrations and legacy import must complete before serving.' })); }
+    return handle(req, res);
+  };
+  app.ready = ready;
   app.commerce = commerce;
+  const muted = community.muted;
+  community.muted = (id) => database.transaction(() => muted(id));
   app.community = community;
   app.service = service;
   app.store = store;
+  app.database = database;
+  app.close = async () => { clearInterval(sweeper); await database.close(); };
   return app;
 }
 
@@ -287,7 +370,7 @@ export function createNotifier() {
   let rt = null;
   return {
     webhooks,
-    attach: (httpServer, community) => (rt = attachRealtime(httpServer, { isMuted: (id) => community?.muted(id) })),
+    attach: (httpServer, community, database) => (rt = attachRealtime(httpServer, { isMuted: (id) => database ? database.transaction(() => community?.muted(id)) : community?.muted(id) })),
     notify: { player: (id, ev, d) => rt?.toPlayer(id, ev, d), all: (ev, d) => rt?.toAll(ev, d) },
     onChange: (p) => {
       rt?.notifyPayment(p);
@@ -296,12 +379,20 @@ export function createNotifier() {
   };
 }
 
-export function start() {
+export async function start() {
   const notifier = createNotifier();
   const app = createGateway({ onChange: notifier.onChange, notify: notifier.notify });
+  try {
+    await app.ready;
+  } catch (e) { await app.close(); throw e; }
   const server = createServer(app);
-  notifier.attach(server, app.community);
+  notifier.attach(server, app.community, app.database);
   server.listen(config.port, () => {
     logStatus(`on http://localhost:${config.port}`);
   });
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
+    server.close(async () => { await app.close(); process.exit(0); });
+    setTimeout(() => process.exit(1), 15_000).unref();
+  });
+  return { server, app };
 }

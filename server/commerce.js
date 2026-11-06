@@ -28,10 +28,10 @@ function price(text) {
   return p;
 }
 
-export function createCommerce({ dir = null, payments, notify = { player() {}, all() {} }, now = () => Date.now() } = {}) {
-  const shops = new Collection(dir, "shops");
-  const orders = new Collection(dir, "orders");
-  const invoices = new Collection(dir, "invoices");
+export function createCommerce({ dir = null, database = null, payments, notify = { player() {}, all() {} }, now = () => Date.now() } = {}) {
+  const shops = new Collection(dir, "shops", { database });
+  const orders = new Collection(dir, "orders", { database });
+  const invoices = new Collection(dir, "invoices", { database });
 
   // ---------------------------------------------------------------- views
   const npcShops = () =>

@@ -17,6 +17,7 @@ const e = process.env;
 const addr = (v) => (/^0x[0-9a-fA-F]{40}$/.test(v || "") ? v : null);
 
 export const config = {
+  databaseUrl: e.DATABASE_URL || '',
   port: Number(e.PORT || 8787),
   dataDir: e.DATA_DIR || join(ROOT, "server", "data"),
   allowedOrigin: e.ALLOWED_ORIGIN || "", // only needed if the API is served from another origin

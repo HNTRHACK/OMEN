@@ -6,7 +6,10 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from "
 import { join } from "node:path";
 
 export class Collection {
-  constructor(dir, name, { delayMs = 150 } = {}) {
+  constructor(dir, name, { delayMs = 150, database = null } = {}) {
+    this.database = database;
+    this.name = name;
+    if (database) return;
     this.file = dir ? join(dir, `${name}.json`) : null;
     this.map = new Map();
     this.delayMs = delayMs;
@@ -14,6 +17,8 @@ export class Collection {
     if (dir) mkdirSync(dir, { recursive: true });
     if (this.file && existsSync(this.file)) for (const v of JSON.parse(readFileSync(this.file, "utf8"))) this.map.set(v.id, v);
   }
+  get map() { return this.database ? this.database.collection(this.name) : this._map; }
+  set map(value) { this._map = value; }
   get(id) {
     return this.map.get(id) ?? null;
   }
@@ -33,10 +38,12 @@ export class Collection {
     this.save();
   }
   save() {
+    if (this.database) return; // the enclosing PostgreSQL transaction persists the snapshot
     if (!this.file || this.timer) return;
     this.timer = setTimeout(() => this.flush(), this.delayMs);
   }
   flush() {
+    if (this.database) return;
     clearTimeout(this.timer);
     this.timer = null;
     if (!this.file) return;

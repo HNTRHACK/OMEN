@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createCommunity } from "../server/community.js";
 import { createPaymentService } from "../server/payments.js";
 import { Store } from "../server/store.js";
-import { moderateText, safeUrl, isModerator } from "../server/moderation.js";
+import { moderateText, safeUrl } from "../server/moderation.js";
 import { sniff } from "../server/images.js";
 
 const A = "a".repeat(24);
@@ -129,13 +129,7 @@ test("ads: 3-day ads go live only after the rental is paid (DEMO here)", async (
   assert.equal(community.liveAds()[0].rented, true);
 });
 
-test("moderator endpoints need the key (constant-time compare)", () => {
-  const req = (k) => ({ headers: { "x-mod-key": k } });
-  assert.equal(isModerator(req("x"), ""), false, "no key configured: nobody is a moderator");
-  assert.equal(isModerator(req("short"), "short"), false, "keys shorter than 12 chars are refused");
-  assert.equal(isModerator(req("correct horse battery"), "correct horse battery"), true);
-  assert.equal(isModerator(req("correct horse batterz"), "correct horse battery"), false);
-});
+// Account/session authorization is exercised against PostgreSQL in server/test/b1.test.js.
 
 test("chat over Socket.IO: moderated, rate-limited, muted players refused, late joiners get recent lines", async () => {
   const { createServer } = await import("node:http");

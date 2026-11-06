@@ -8,6 +8,20 @@ import { join } from "node:path";
 export const MAX_BYTES = 700 * 1024;
 export const MAX_SIDE = 2048;
 
+/** Fully decode and re-encode uploads on the server; never trust browser metadata stripping. */
+export async function normalizeImage(dataUrl) {
+  const { buf, info } = checkImage(dataUrl);
+  const { default: sharp } = await import('sharp');
+  try {
+    const image = sharp(buf, { limitInputPixels: MAX_SIDE * MAX_SIDE, failOn: 'warning' });
+    const output = info.ext === 'png' ? await image.png().toBuffer() : await image.jpeg({ quality: 85 }).toBuffer();
+    if (output.length > MAX_BYTES) throw new Error('Encoded image too large');
+    return `data:${info.type};base64,${output.toString('base64')}`;
+  } catch {
+    throw Object.assign(new Error('The image could not be decoded safely.'), { status: 400, code: 'bad_image' });
+  }
+}
+
 export function sniff(buf) {
   if (buf.length > 24 && buf.readUInt32BE(0) === 0x89504e47 && buf.readUInt32BE(4) === 0x0d0a1a0a && buf.toString("ascii", 12, 16) === "IHDR")
     return { type: "image/png", ext: "png", w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };

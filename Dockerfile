@@ -4,6 +4,8 @@ FROM node:22-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
+COPY server/package.json server/package-lock.json ./server/
+RUN npm ci --prefix server --omit=dev --no-audit --no-fund
 COPY . .
 # VITE_* values are baked into the browser bundle at build time (public by design).
 ARG VITE_ARKIV_ACCESS_KEY=""

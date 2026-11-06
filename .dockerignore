@@ -1,4 +1,7 @@
 node_modules
+server/node_modules
+server/.npm-cache
+server/.test-postgres*
 dist
 .env
 .env.*
