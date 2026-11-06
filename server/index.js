@@ -12,6 +12,8 @@ import { createRelayer, relayerStatus } from "./relayer.js";
 import { attachRealtime, merchantKeys, checkMerchantKey, merchantView } from "./realtime.js";
 import { createWebhooks } from "./webhooks.js";
 import { createMarket } from "./market.js";
+import { createCommerce } from "./commerce.js";
+import { playerFromRequest } from "./identity.js";
 import { MERCHANTS, merchantKey } from "../shared/merchants.js";
 import { WHITECHAIN, USDT } from "../shared/chains.js";
 import { FEE_BPS } from "../shared/money.js";
@@ -26,7 +28,7 @@ export function toCsv(rows) {
   return [CSV_COLS.join(","), ...rows.map((r) => CSV_COLS.map((c) => csvCell(c === "createdAt" ? new Date(r.createdAt).toISOString() : r[c])).join(","))].join("\n") + "\n";
 }
 
-export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys(), market = createMarket() }) {
+export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys(), market = createMarket(), commerce = null }) {
   /** Merchant routes need that merchant's access key: Authorization: Bearer <key>. */
   const merchantOnly = (id, req) => {
     const key = /^Bearer (.+)$/.exec(req.headers.authorization || "")?.[1] || "";
@@ -53,6 +55,25 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
     ["POST", /^\/api\/payments\/([\w-]{36})\/submit$/, async ([id], b) => service.submit(id, b)],
     ["POST", /^\/api\/payments\/([\w-]{36})\/relay$/, async ([id], b) => service.relay(id, b)],
     ["POST", /^\/api\/payments\/([\w-]{36})\/cancel$/, async ([id]) => service.cancel(id)],
+    // Marketplace: shops (B2C), orders, invoices (B2B). Identity from the x-omen-token header.
+    ...(commerce
+      ? [
+          ["GET", /^\/api\/shops$/, async () => commerce.list()],
+          ["GET", /^\/api\/shops\/mine$/, async (_, b, req) => ({ shop: commerce.myShop(playerFromRequest(req)) })],
+          ["POST", /^\/api\/shops\/(plot-[a-z]{2,20})\/claim$/, async ([id], b, req) => commerce.claim(playerFromRequest(req), id, b, b.ownerName)],
+          ["POST", /^\/api\/shops\/(plot-[a-z]{2,20})$/, async ([id], b, req) => commerce.update(playerFromRequest(req), id, b)],
+          ["POST", /^\/api\/shops\/(plot-[a-z]{2,20})\/release$/, async ([id], b, req) => commerce.release(playerFromRequest(req), id)],
+          ["POST", /^\/api\/shops\/(plot-[a-z]{2,20})\/products$/, async ([id], b, req) => commerce.upsertProduct(playerFromRequest(req), id, b)],
+          ["GET", /^\/api\/shops\/(plot-[a-z]{2,20})\/orders$/, async ([id], b, req) => ({ orders: commerce.shopOrders(playerFromRequest(req), id) })],
+          ["POST", /^\/api\/orders$/, async (_, b, req) => commerce.order(playerFromRequest(req), b.buyerName, b)],
+          ["GET", /^\/api\/orders\/mine$/, async (_, b, req) => ({ orders: commerce.myOrders(playerFromRequest(req)) })],
+          ["POST", /^\/api\/orders\/([\w-]{36})\/fulfil$/, async ([id], b, req) => commerce.fulfil(playerFromRequest(req), id)],
+          ["POST", /^\/api\/invoices$/, async (_, b, req) => commerce.invoice(playerFromRequest(req), b)],
+          ["GET", /^\/api\/invoices\/mine$/, async (_, b, req) => commerce.myInvoices(playerFromRequest(req))],
+          ["POST", /^\/api\/invoices\/([\w-]{36})\/pay$/, async ([id], b, req) => commerce.payInvoice(playerFromRequest(req), id, b)],
+          ["POST", /^\/api\/invoices\/([\w-]{36})\/cancel$/, async ([id], b, req) => commerce.cancelInvoice(playerFromRequest(req), id)],
+        ]
+      : []),
     // Merchant: payment history (JSON) and accountant export (CSV)
     ["GET", /^\/api\/merchant\/([a-z-]{3,32})\/payments$/, async ([id], _, req, url) => {
       merchantOnly(id, req);
@@ -155,9 +176,10 @@ async function serveStatic(path, res) {
 // ------------------------------------------------------------------ start
 
 /** The real gateway (store, live rates, 0G, Whitechain verification) as a request handler. */
-export function createGateway({ onChange = () => {} } = {}) {
+export function createGateway({ onChange = () => {}, notify = { player() {}, all() {} } } = {}) {
   const store = new Store(config.dataDir);
   const relayer = createRelayer();
+  let commerce = null; // set below; payment changes also settle marketplace orders
   const service = createPaymentService({
     store,
     rates: () => usdtInr(),
@@ -166,9 +188,14 @@ export function createGateway({ onChange = () => {} } = {}) {
     checkoutConfigured: () => !!config.checkoutAddress,
     checkoutAddress: () => config.checkoutAddress,
     relayer,
-    onChange,
+    onChange: (p) => {
+      onChange(p);
+      commerce?.onPayment(p);
+    },
     quoteTtlMs: config.quoteTtlMs,
   });
+  commerce = createCommerce({ dir: config.dataDir, payments: service, notify });
+  setInterval(() => commerce.sweep(), 30_000).unref();
   const publicConfig = () => ({
     whitechain: { ...WHITECHAIN, rpc: undefined },
     usdt: USDT,
@@ -180,7 +207,8 @@ export function createGateway({ onChange = () => {} } = {}) {
     merchants: MERCHANTS.map((m) => ({ ...m, key: merchantKey(m.id) })),
     inrPayout: "simulated",
   });
-  const app = createApp({ service, publicConfig, store });
+  const app = createApp({ service, publicConfig, store, commerce });
+  app.commerce = commerce;
   app.service = service;
   app.store = store;
   return app;
@@ -201,6 +229,7 @@ export function createNotifier() {
   return {
     webhooks,
     attach: (httpServer) => (rt = attachRealtime(httpServer)),
+    notify: { player: (id, ev, d) => rt?.toPlayer(id, ev, d), all: (ev, d) => rt?.toAll(ev, d) },
     onChange: (p) => {
       rt?.notifyPayment(p);
       webhooks.notify(p).catch(() => {});
@@ -210,7 +239,7 @@ export function createNotifier() {
 
 export function start() {
   const notifier = createNotifier();
-  const server = createServer(createGateway({ onChange: notifier.onChange }));
+  const server = createServer(createGateway({ onChange: notifier.onChange, notify: notifier.notify }));
   notifier.attach(server);
   server.listen(config.port, () => {
     logStatus(`on http://localhost:${config.port}`);

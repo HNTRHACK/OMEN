@@ -312,6 +312,64 @@ contract OmenCheckoutGaslessTest is AuthSigner {
     }
 }
 
+/// Player-run shops: direct merchant ids pay a shop's own address, no registration needed.
+contract OmenCheckoutDirectTest is AuthSigner {
+    OmenCheckout co;
+    Mock3009 usdt;
+    uint256 payerPk = 0xC0FFEE;
+    address payer;
+    address shop = makeAddr("asha-shop");
+    uint256 deadline;
+
+    function setUp() public {
+        vm.warp(1_800_000_000);
+        payer = vm.addr(payerPk);
+        usdt = new Mock3009();
+        co = new OmenCheckout(address(usdt));
+        usdt.mint(payer, 10e6);
+        deadline = block.timestamp + 120;
+    }
+
+    function test_directIdPaysTheShopWithoutRegistration() public {
+        bytes32 id = co.directMerchantId(shop);
+        assertEq(uint256(id) >> 160, co.DIRECT_TAG());
+        assertEq(co.merchantOf(id).payout, shop);
+        bytes32 order = keccak256("shop-order");
+        (uint8 v, bytes32 r, bytes32 s) = signAuth(payerPk, usdt.DOMAIN_SEPARATOR(), address(co), 1_500_000, deadline, co.authorizationNonce(order, id, 1_500_000, 12_000, deadline));
+        vm.prank(makeAddr("relayer"));
+        co.payWithAuthorization(order, id, 1_500_000, 12_000, deadline, payer, v, r, s);
+        assertEq(usdt.balanceOf(shop), 1_500_000);
+        // only the shop's own address can refund it
+        vm.prank(makeAddr("someone"));
+        vm.expectRevert(OmenCheckout.NotMerchant.selector);
+        co.refund(order, 1);
+        vm.startPrank(shop);
+        usdt.approve(address(co), 1_500_000);
+        co.refund(order, 1_500_000);
+        vm.stopPrank();
+        assertEq(usdt.balanceOf(payer), 10e6);
+    }
+
+    function test_directIdForZeroAddressIsRefused() public {
+        vm.expectRevert(OmenCheckout.ZeroAddress.selector);
+        co.directMerchantId(address(0));
+        bytes32 zeroDirect = bytes32(co.DIRECT_TAG() << 160);
+        assertFalse(co.merchantOf(zeroDirect).active);
+    }
+
+    function test_registeredButDeactivatedMerchantStaysOff() public {
+        // A registered id can't be revived by the direct fallback once deactivated.
+        bytes32 id = co.directMerchantId(shop);
+        co.setMerchant(id, shop, false);
+        assertFalse(co.merchantOf(id).active);
+    }
+
+    function testFuzz_directIdRoundTrips(address a) public view {
+        vm.assume(a != address(0));
+        assertEq(co.merchantOf(co.directMerchantId(a)).payout, a);
+    }
+}
+
 interface IERC20Like {
     function balanceOf(address) external view returns (uint256);
     function approve(address, uint256) external returns (bool);

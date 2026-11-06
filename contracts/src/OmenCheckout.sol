@@ -122,6 +122,26 @@ contract OmenCheckout {
         return keccak256(abi.encode(address(this), orderId, merchantId, amount, inrPaise, deadline));
     }
 
+    /// Tag in the top 96 bits of a "direct" merchant id. A direct id pays straight to the address in
+    /// its low 160 bits, so player-run shops need no on-chain registration and no operator key.
+    /// Registered ids are keccak hashes and will never carry this tag by accident.
+    uint256 public constant DIRECT_TAG = 0x0DEC0DEC0DEC0DEC0DEC0DEC;
+
+    /// The direct merchant id that pays `payout`.
+    function directMerchantId(address payout) public pure returns (bytes32) {
+        if (payout == address(0)) revert ZeroAddress();
+        return bytes32((DIRECT_TAG << 160) | uint256(uint160(payout)));
+    }
+
+    /// A registered merchant, or a direct id's payout address.
+    function merchantOf(bytes32 merchantId) public view returns (Merchant memory m) {
+        m = merchants[merchantId];
+        if (m.payout == address(0) && uint256(merchantId) >> 160 == DIRECT_TAG) {
+            address a = address(uint160(uint256(merchantId)));
+            if (a != address(0)) m = Merchant(a, true);
+        }
+    }
+
     /// Back-compat view: who paid `orderId` (zero if unpaid).
     function payerOf(bytes32 orderId) external view returns (address) {
         return orders[orderId].payer;
@@ -166,7 +186,7 @@ contract OmenCheckout {
     function refund(bytes32 orderId, uint256 amount) external {
         Order storage o = orders[orderId];
         if (o.payer == address(0)) revert UnknownOrder();
-        if (msg.sender != merchants[o.merchantId].payout) revert NotMerchant();
+        if (msg.sender != merchantOf(o.merchantId).payout) revert NotMerchant();
         if (amount == 0) revert ZeroAmount();
         if (amount > o.amount - o.refunded) revert RefundTooLarge();
         o.refunded += uint128(amount); // effects before the external call
@@ -185,7 +205,7 @@ contract OmenCheckout {
         if (amount > type(uint128).max) revert AmountTooLarge();
         if (payer == address(0)) revert ZeroAddress();
         if (orders[orderId].payer != address(0)) revert AlreadyPaid();
-        m = merchants[merchantId];
+        m = merchantOf(merchantId);
         if (!m.active) revert UnknownMerchant();
         orders[orderId] = Order(payer, merchantId, uint128(amount), 0);
     }

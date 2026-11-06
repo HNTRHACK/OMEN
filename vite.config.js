@@ -8,7 +8,7 @@ const gateway = () => ({
     // Plain Node import: the gateway is ordinary server code, not something Vite should transform.
     const { createGateway, createNotifier, logStatus } = await import(new URL("./server/index.js", import.meta.url).href);
     const notifier = createNotifier();
-    const handle = createGateway({ onChange: notifier.onChange });
+    const handle = createGateway({ onChange: notifier.onChange, notify: notifier.notify });
     // Socket.IO (multiplayer + merchant notifications) rides on Vite's own HTTP server.
     if (server.httpServer) notifier.attach(server.httpServer);
     logStatus("mounted at /api (dev)");

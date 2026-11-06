@@ -30,7 +30,8 @@ function lev(a, b) {
 export function ruleCheck(upi, inrPaise) {
   const flags = [];
   const flag = (level, code, text) => flags.push({ level, code, text });
-  const known = merchantByVpa(upi.vpa);
+  // A marketplace order's payee is a known shop by construction (not from a scanned code).
+  const known = upi.market ? { name: upi.name } : merchantByVpa(upi.vpa);
 
   if (known) {
     if (upi.name && upi.name.toLowerCase() !== known.name.toLowerCase())

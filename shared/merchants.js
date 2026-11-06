@@ -36,3 +36,12 @@ export const merchantByVpa = (vpa) => MERCHANTS.find((m) => m.vpa === String(vpa
 
 export const merchantQr = (m, item) =>
   buildUpiQr({ vpa: m.vpa, name: m.name, mcc: m.mcc, amountPaise: item?.paise, note: item?.name });
+
+/** OmenCheckout's DIRECT_TAG (top 96 bits): a direct merchant id pays the address in its low 160 bits. */
+export const DIRECT_TAG_HEX = "0dec0dec0dec0dec0dec0dec";
+/** Same as OmenCheckout.directMerchantId(payout): player shops need no on-chain registration. */
+export function directMerchantId(payout) {
+  const a = String(payout).toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(a) || /^0x0{40}$/.test(a)) throw new Error("bad payout address");
+  return `0x${DIRECT_TAG_HEX}${a.slice(2)}`;
+}

@@ -148,6 +148,7 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys() } =
         sock.to(room).emit("joined", pub(me));
       }
       me.sock = sock.id;
+      sock.data.playerId = me.id; // for per-player notifications (orders, invoices)
       sock.join(room);
       ack({ id: me.id, room, players: [...players.values()].filter((p) => p.id !== me.id).map(pub) });
     });
@@ -211,5 +212,14 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys() } =
       merchant.to(`m:${p.merchant.id}`).emit("payment", merchantView(p));
     },
     stats: () => ({ rooms: rooms.size, players: [...rooms.values()].reduce((n, r) => n + r.size, 0) }),
+    /** Send to every connected socket of one player (any room). */
+    toPlayer(id, ev, data) {
+      if (!id) return;
+      for (const s of world.sockets.values()) if (s.data.playerId === id) s.emit(ev, data);
+    },
+    /** Send to every connected player (shop, billboard and forum updates are world-wide). */
+    toAll(ev, data) {
+      world.emit(ev, data);
+    },
   };
 }

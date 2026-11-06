@@ -60,10 +60,25 @@ export function createPaymentService({ store, rates, infer, verify, checkoutConf
       if (inrPaise <= 0 || inrPaise > MAX_INR_PAISE) throw new ApiError(400, "bad_amount", `Enter an amount between ₹0.01 and ${formatInr(MAX_INR_PAISE)}.`);
     }
 
-    const merchant = merchantByVpa(upi.vpa);
+    const known = merchantByVpa(upi.vpa);
+    const merchant = known ? { id: known.id, name: known.name, npc: known.npc, key: merchantKey(known.id) } : null;
+    return build({ upi: { vpa: upi.vpa, name: upi.name, note: upi.note, mcc: upi.mcc, amountFromQr: upi.amountPaise != null }, inrPaise, merchant, token });
+  }
+
+  /**
+   * A marketplace order (player shop, NPC shop or B2B invoice): same pipeline as a scanned QR.
+   * merchant.key is the on-chain merchant id (registered, or a direct id for player shops).
+   */
+  async function createDirect({ merchant, inrPaise, note, token, market }) {
+    if (!Number.isSafeInteger(inrPaise) || inrPaise <= 0 || inrPaise > MAX_INR_PAISE) throw new ApiError(400, "bad_amount", `Orders must be between ₹0.01 and ${formatInr(MAX_INR_PAISE)}.`);
+    const upi = { vpa: `shop:${merchant.id}`, name: merchant.name, note: String(note || "").slice(0, 80), mcc: "", amountFromQr: true, market: true };
+    return build({ upi, inrPaise, merchant, token, market });
+  }
+
+  async function build({ upi, inrPaise, merchant, token, market = null }) {
     const mode = token === "USDT" ? "testnet" : token === "DEMO" ? "demo" : null;
     if (!mode) throw new ApiError(400, "bad_token", "Choose USDT (Whitechain testnet) or DEMO credits.");
-    if (mode === "testnet" && !merchant) throw new ApiError(400, "unregistered_testnet", "Real testnet USDT can only pay registered Blockhaven merchants. Use DEMO credits for other QR codes.");
+    if (mode === "testnet" && !merchant?.key) throw new ApiError(400, "unregistered_testnet", "Real testnet USDT can only pay registered Blockhaven merchants or shops with a payout wallet. Use DEMO credits.");
     if (mode === "testnet" && !checkoutConfigured()) throw new ApiError(503, "checkout_off", "The Whitechain checkout contract isn't configured on this server yet. Use DEMO credits.");
 
     const r = mode === "testnet" ? await rates() : { rate: DEMO.rate, source: "fixed-demo", at: now() };
@@ -75,8 +90,9 @@ export function createPaymentService({ store, rates, infer, verify, checkoutConf
       state: S.QUOTED,
       createdAt: t,
       updatedAt: t,
-      upi: { vpa: upi.vpa, name: upi.name, note: upi.note, mcc: upi.mcc, amountFromQr: upi.amountPaise != null },
-      merchant: merchant ? { id: merchant.id, name: merchant.name, npc: merchant.npc } : null,
+      upi,
+      merchant,
+      market,
       quote: {
         token: mode === "testnet" ? "USDT" : "DEMO",
         inrPaise: q.inrPaise,
@@ -121,7 +137,7 @@ export function createPaymentService({ store, rates, infer, verify, checkoutConf
       p.payer = getAddress(payer);
       p.chain = {
         orderId: "0x" + randomBytes(32).toString("hex"),
-        merchantKey: merchantKey(p.merchant.id),
+        merchantKey: p.merchant.key || merchantKey(p.merchant.id),
         payer: p.payer,
         amount: p.quote.tokenUnits,
         inrPaise: String(p.quote.inrPaise),
@@ -229,5 +245,5 @@ export function createPaymentService({ store, rates, infer, verify, checkoutConf
     return save(p);
   }
 
-  return { create, risk, authorize, submit, relay, refresh, cancel, get: need, feeBps: FEE_BPS };
+  return { create, createDirect, risk, authorize, submit, relay, refresh, cancel, get: need, feeBps: FEE_BPS };
 }
