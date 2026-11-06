@@ -26,6 +26,7 @@ export class Envelope {
 
   /** Arc from a to b; resolves on arrival. */
   fly(a, b, { height = 2.2, duration = 1.6 } = {}) {
+    this.mesh.position.copy(a);
     this.scene.add(this.mesh);
     flying.add(this);
     return new Promise((resolve) => (this.anim = { a: a.clone(), b: b.clone(), t: 0, height, duration, resolve }));
