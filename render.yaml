@@ -14,6 +14,14 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false
+      - key: WORLD_ID_ENVIRONMENT
+        value: production
+      - key: WORLD_ID_CLIENT_ID
+        sync: false
+      - key: WORLD_ID_CLIENT_SECRET
+        sync: false
+      - key: WORLD_ID_REDIRECT_URI
+        sync: false
       - key: TRUST_PROXY
         value: "1"
       - key: CHECKOUT_ADDRESS

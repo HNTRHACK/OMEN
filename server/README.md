@@ -1,5 +1,9 @@
 # Backend milestone B1
 
+World ID identity, sessions, recovery and persistent avatar ownership are documented in
+[WORLD-ID.md](WORLD-ID.md). Claude's avatar creator API contract is
+[CONTRACT-WORLD-ID.md](CONTRACT-WORLD-ID.md). Run the additional migration before starting this version.
+
 The gateway now requires PostgreSQL 16 or newer. All operational collections, campaign statistics,
 uploads, moderator accounts, sessions and moderation decisions persist in PostgreSQL. The original
 JSON adapters remain only for existing isolated domain tests; `createGateway()` never writes JSON.

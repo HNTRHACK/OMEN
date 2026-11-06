@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -75,7 +75,7 @@ async function harness(t, { migrate = true } = {}) {
 test('migrations are atomic, repeatable and detect edited applied SQL', async (t) => {
   const h = await harness(t);
   await h.database.migrate();
-  assert.equal((await h.database.pool.query('SELECT * FROM schema_migrations')).rowCount, 1);
+  assert.equal((await h.database.pool.query('SELECT * FROM schema_migrations')).rowCount, readdirSync(new URL('../migrations/', import.meta.url)).filter((name) => name.endsWith('.sql')).length);
   await h.database.pool.query("UPDATE schema_migrations SET digest='changed'");
   await assert.rejects(h.database.migrate(), /Applied migration changed/);
 });

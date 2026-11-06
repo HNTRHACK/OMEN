@@ -8,6 +8,7 @@
     "account": "node manage.js account"
   },
   "dependencies": {
+    "openid-client": "^6.8.8",
     "pg": "^8.16.3",
     "sharp": "^0.35.5"
   }

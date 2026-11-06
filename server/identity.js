@@ -10,6 +10,8 @@ export const playerIdOf = (token) => createHash("sha256").update(`omen-player:${
 
 /** The caller's player id from the x-omen-token header, or null. */
 export function playerFromRequest(req) {
+  // Only backend middleware sets this property after resolving the database-backed session.
+  if (Object.hasOwn(req, 'omenPlayer')) return req.omenPlayer?.avatarId || null;
   const t = String(req.headers["x-omen-token"] || "");
   return TOKEN_RE.test(t) ? playerIdOf(t) : null;
 }

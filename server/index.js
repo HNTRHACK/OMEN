@@ -18,6 +18,7 @@ import { createCommunity, CATS } from "./community.js";
 import { serveUpload, normalizeImage } from "./images.js";
 import { createDatabase } from './postgres.js';
 import { createAuth } from './auth.js';
+import { createWorldIdentity } from './world-identity.js';
 import { createAlfred } from "./alfred.js";
 import { MERCHANTS, merchantKey } from "../shared/merchants.js";
 import { WHITECHAIN, USDT } from "../shared/chains.js";
@@ -33,7 +34,7 @@ export function toCsv(rows) {
   return [CSV_COLS.join(","), ...rows.map((r) => CSV_COLS.map((c) => csvCell(c === "createdAt" ? new Date(r.createdAt).toISOString() : r[c])).join(","))].join("\n") + "\n";
 }
 
-export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys(), market = createMarket(), commerce = null, community = null, alfred = null, database = null, auth = null }) {
+export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys(), market = createMarket(), commerce = null, community = null, alfred = null, database = null, auth = null, worldIdentity = null }) {
   const name = (b) => String(b?.name || "").slice(0, 16);
   /** The caller's player id if they sent a valid guest token, else null (moderator-only pages send none). */
   const optionalPlayer = (req) => {
@@ -62,6 +63,15 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
   };
 
   const routes = [
+    ...(worldIdentity ? [
+      ['GET', /^\/api\/auth\/world\/status$/, async () => worldIdentity.status(), { external: true }],
+      ['POST', /^\/api\/auth\/world\/start$/, async (_, b, req) => worldIdentity.start(req, b), { external: true }],
+      ['GET', /^\/api\/auth\/world\/callback$/, async (_, b, req, url) => worldIdentity.callback(req, url.searchParams), { external: true }],
+      ['GET', /^\/api\/auth\/me$/, async (_, b, req) => worldIdentity.me(req)],
+      ['POST', /^\/api\/auth\/logout$/, async (_, b, req) => worldIdentity.logout(req, b), { external: true }],
+      ['GET', /^\/api\/avatar$/, async (_, b, req) => worldIdentity.ownAvatar(req)],
+      ['POST', /^\/api\/avatar$/, async (_, b, req) => worldIdentity.updateAvatar(req, b)],
+    ] : []),
     ...(auth ? [
       ['POST', /^\/api\/mod\/login$/, async (_, b, req) => auth.login(req, b)],
       ['POST', /^\/api\/mod\/logout$/, async (_, b, req) => auth.logout(req)],
@@ -153,7 +163,8 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
         "content-type": "application/json; charset=utf-8",
         "cache-control": "no-store",
         "x-content-type-options": "nosniff",
-        ...(cookie || mediaCookie ? { 'set-cookie': [cookie, mediaCookie].filter(Boolean) } : {}),
+        'referrer-policy': 'no-referrer',
+        ...(cookie || mediaCookie ? { 'set-cookie': [cookie, mediaCookie].flat().filter(Boolean) } : {}),
         ...(config.allowedOrigin ? { "access-control-allow-origin": config.allowedOrigin, vary: "origin" } : {}),
       });
       res.end(JSON.stringify(body));
@@ -163,6 +174,7 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
         const name = url.pathname.slice(9);
         const upload = await database.transaction(async () => {
           if (!/^[a-f0-9]{32}\.(png|jpg)$/.test(name) || !['GET', 'HEAD'].includes(req.method)) return null;
+          if (worldIdentity) req.omenPlayer = await worldIdentity.resolveRequest(req);
           let moderator = false;
           try { moderator = !!(await modOnly(req)); } catch (e) { if (![401, 403].includes(e.status)) throw e; }
           const mediaToken = /(?:^|;\s*)omen_media=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie || '')?.[1];
@@ -174,12 +186,15 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
         if (!upload) return send(404, { error: 'not_found', message: 'Image not found.' });
         res.writeHead(200, { 'content-type': upload.content_type, 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
         return res.end(req.method === 'HEAD' ? undefined : upload.bytes);
-      } catch (e) { console.error('Image lookup failed:', e.code); return send(503, { error: 'unavailable', message: 'Image storage unavailable.' }); }
+      } catch (e) {
+        if (e.status === 401) return send(401, { error: e.code, message: e.message });
+        console.error('Image lookup failed:', e.code); return send(503, { error: 'unavailable', message: 'Image storage unavailable.' });
+      }
     }
     if (url.pathname.startsWith("/uploads/")) return serveUpload(community?.uploadsDir, url.pathname.slice(9), res);
     if (!url.pathname.startsWith("/api/")) return serveStatic(url.pathname, res);
     if (req.method === "OPTIONS" && config.allowedOrigin) {
-      res.writeHead(204, { "access-control-allow-origin": config.allowedOrigin, "access-control-allow-methods": "GET,POST", "access-control-allow-headers": "content-type,authorization,x-omen-token,x-mod-key", vary: 'origin' });
+      res.writeHead(204, { "access-control-allow-origin": config.allowedOrigin, "access-control-allow-methods": "GET,POST", "access-control-allow-headers": "content-type,authorization,x-omen-token,x-omen-session,x-mod-key", vary: 'origin' });
       return res.end();
     }
     if (limited(clientIp(req))) return send(429, { error: "rate_limited", message: "Too many requests. Slow down a little." });
@@ -199,10 +214,12 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
           body = await readJson(req, opts?.maxBody);
         }
         if (database && req.method === 'POST' && url.pathname === '/api/ads' && body.image) {
+          if (worldIdentity) req.omenPlayer = await worldIdentity.resolveRequest(req);
           if (!playerFromRequest(req)) throw new ApiError(401, 'no_identity', 'Join the world first.');
           body.image = await normalizeImage(body.image);
         }
         const invoke = async () => {
+          if (worldIdentity && !opts?.external) req.omenPlayer = await worldIdentity.resolveRequest(req);
           // Ad rental payment records are private even through the generic checkout endpoints.
           if (database && url.pathname.startsWith('/api/payments/')) {
             const p = store?.get(match[1]);
@@ -213,8 +230,12 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
           }
           return fn(match.slice(1), body, req, url);
         };
-        const out = database ? await database.transaction(invoke) : await invoke();
+        const out = database && !opts?.external ? await database.transaction(invoke) : await invoke();
         if (out?.__error) return send(out.__error.status, { error: out.__error.error, message: out.__error.message });
+        if (out?.__redirect) {
+          res.writeHead(303, { location: out.__redirect, 'set-cookie': out.__cookie, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff' });
+          return res.end();
+        }
         if (out?.__raw) {
           res.writeHead(200, { "content-type": out.__raw.type, "content-disposition": `attachment; filename="${out.__raw.name}"`, "cache-control": "no-store", "x-content-type-options": "nosniff" });
           return res.end(out.__raw.body);
@@ -282,7 +303,7 @@ async function serveStatic(path, res) {
 // ------------------------------------------------------------------ start
 
 /** The real gateway (store, live rates, 0G, Whitechain verification) as a request handler. */
-export function createGateway({ onChange = () => {}, notify = { player() {}, all() {} }, database = createDatabase(config.databaseUrl), legacyDir = config.dataDir } = {}) {
+export function createGateway({ onChange = () => {}, notify = { player() {}, all() {} }, database = createDatabase(config.databaseUrl), legacyDir = config.dataDir, worldIdentity = createWorldIdentity(database, config.worldId) } = {}) {
   const store = new Store(null, { database });
   const liveNotify = notify;
   notify = Object.fromEntries(['player', 'all'].map((method) => [method, (...args) => {
@@ -335,7 +356,7 @@ export function createGateway({ onChange = () => {}, notify = { player() {}, all
     inrPayout: "simulated",
   });
   const alfred = createAlfred({ zgInfer: zgStatus().configured ? (m) => infer(m) : null });
-  const handle = createApp({ service, publicConfig, store, commerce, community, alfred, database, auth: createAuth(database) });
+  const handle = createApp({ service, publicConfig, store, commerce, community, alfred, database, auth: createAuth(database), worldIdentity });
   const ready = database.verifyReady(legacyDir);
   ready.catch(() => {}); // start() or the request handler reports startup failures
   const app = async (req, res) => {
@@ -348,9 +369,11 @@ export function createGateway({ onChange = () => {}, notify = { player() {}, all
   const muted = community.muted;
   community.muted = (id) => database.transaction(() => muted(id));
   app.community = community;
+  community.worldIdentity = worldIdentity; // Vite's existing notifier call can discover the backend identity service
   app.service = service;
   app.store = store;
   app.database = database;
+  app.worldIdentity = worldIdentity;
   app.close = async () => { clearInterval(sweeper); await database.close(); };
   return app;
 }
@@ -370,7 +393,7 @@ export function createNotifier() {
   let rt = null;
   return {
     webhooks,
-    attach: (httpServer, community, database) => (rt = attachRealtime(httpServer, { isMuted: (id) => database ? database.transaction(() => community?.muted(id)) : community?.muted(id) })),
+    attach: (httpServer, community, database, worldIdentity = community?.worldIdentity) => (rt = attachRealtime(httpServer, { worldIdentity, isMuted: (id) => database ? database.transaction(() => community?.muted(id)) : community?.muted(id) })),
     notify: { player: (id, ev, d) => rt?.toPlayer(id, ev, d), all: (ev, d) => rt?.toAll(ev, d) },
     onChange: (p) => {
       rt?.notifyPayment(p);
@@ -386,7 +409,7 @@ export async function start() {
     await app.ready;
   } catch (e) { await app.close(); throw e; }
   const server = createServer(app);
-  notifier.attach(server, app.community, app.database);
+  notifier.attach(server, app.community, app.database, app.worldIdentity);
   server.listen(config.port, () => {
     logStatus(`on http://localhost:${config.port}`);
   });

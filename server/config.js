@@ -18,6 +18,12 @@ const addr = (v) => (/^0x[0-9a-fA-F]{40}$/.test(v || "") ? v : null);
 
 export const config = {
   databaseUrl: e.DATABASE_URL || '',
+  worldId: {
+    environment: e.WORLD_ID_ENVIRONMENT || 'production',
+    clientId: e.WORLD_ID_CLIENT_ID || '',
+    clientSecret: e.WORLD_ID_CLIENT_SECRET || '',
+    redirectUri: e.WORLD_ID_REDIRECT_URI || '',
+  },
   port: Number(e.PORT || 8787),
   dataDir: e.DATA_DIR || join(ROOT, "server", "data"),
   allowedOrigin: e.ALLOWED_ORIGIN || "", // only needed if the API is served from another origin
