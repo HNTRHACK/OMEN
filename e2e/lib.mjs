@@ -17,7 +17,14 @@ export async function enter(browser, url = BASE, { name, outfit, viewport = { wi
   const page = await ctx.newPage();
   const logs = [];
   page.on("pageerror", (e) => logs.push("pageerror: " + e.stack));
-  page.on("console", (m) => m.type() === "error" && logs.push("console: " + m.text()));
+  // "Failed to load resource" console lines don't say which URL; requestfailed does. A failed
+  // same-origin request is an error; a third-party one (Google Fonts) is a warning only.
+  page.on("console", (m) => m.type() === "error" && !/^Failed to load resource/.test(m.text()) && logs.push("console: " + m.text()));
+  page.on("requestfailed", (r) => {
+    const line = `request failed: ${r.url().slice(0, 100)} (${r.failure()?.errorText})`;
+    if (new URL(r.url()).origin === new URL(url).origin) logs.push(line);
+    else console.log("warning, third-party " + line);
+  });
   await page.goto(url);
   await page.waitForSelector("#start:not([hidden])", { timeout: 120000 });
   if (name && (await page.$("#mp-name"))) await page.fill("#mp-name", name);

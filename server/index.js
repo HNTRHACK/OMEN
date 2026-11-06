@@ -11,6 +11,7 @@ import { verifyPayment } from "./chain.js";
 import { createRelayer, relayerStatus } from "./relayer.js";
 import { attachRealtime, merchantKeys, checkMerchantKey, merchantView } from "./realtime.js";
 import { createWebhooks } from "./webhooks.js";
+import { createMarket } from "./market.js";
 import { MERCHANTS, merchantKey } from "../shared/merchants.js";
 import { WHITECHAIN, USDT } from "../shared/chains.js";
 import { FEE_BPS } from "../shared/money.js";
@@ -25,7 +26,7 @@ export function toCsv(rows) {
   return [CSV_COLS.join(","), ...rows.map((r) => CSV_COLS.map((c) => csvCell(c === "createdAt" ? new Date(r.createdAt).toISOString() : r[c])).join(","))].join("\n") + "\n";
 }
 
-export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys() }) {
+export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys(), market = createMarket() }) {
   /** Merchant routes need that merchant's access key: Authorization: Bearer <key>. */
   const merchantOnly = (id, req) => {
     const key = /^Bearer (.+)$/.exec(req.headers.authorization || "")?.[1] || "";
@@ -44,6 +45,7 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
     ["GET", /^\/api\/health$/, async () => ({ ok: true })],
     ["GET", /^\/api\/config$/, async () => publicConfig()],
     ["GET", /^\/api\/rates$/, async () => usdtInr()],
+    ["GET", /^\/api\/market\/([a-z]{2,5})$/, async ([sym]) => market.coin(sym)],
     ["POST", /^\/api\/payments$/, async (_, b) => service.create(b)],
     ["GET", /^\/api\/payments\/([\w-]{36})$/, async ([id]) => service.refresh(id)],
     ["POST", /^\/api\/payments\/([\w-]{36})\/risk$/, async ([id]) => service.risk(id)],

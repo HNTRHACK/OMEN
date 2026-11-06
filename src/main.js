@@ -6,6 +6,8 @@ import { mapDir, tangentToward } from "./planet.js";
 import { SPOTS } from "./layout.js";
 import { Character, OUTFITS } from "./character.js";
 import { createNet, roomFromUrl, newRoomCode, inviteUrl } from "./net.js";
+import { Collectibles } from "./collectibles.js";
+import { createCoinCard } from "./coincard.js";
 import { Mover, CameraRig } from "./player.js";
 import { InkPass } from "./post.js";
 import { Envelope, Particles, Smoke, Birds, flying } from "./fx.js";
@@ -536,8 +538,49 @@ async function journey(stage, co) {
 }
 
 addEventListener("keydown", (e) => {
-  if ((e.key === "p" || e.key === "P") && mode === "play" && !busy && !ui.dialogueOpen() && !pay.isOpen()) pay.openWallet();
+  if ((e.key === "p" || e.key === "P") && mode === "play" && !busy && !ui.dialogueOpen() && !pay.isOpen() && !coinCard.isOpen()) pay.openWallet();
 });
+
+// ------------------------------------------------------------------ crypto discoveries
+
+const coins = new Collectibles(scene, W.colliders);
+const coinCard = createCoinCard({
+  onOpenChange(open) {
+    clearHeldKeys();
+    busy = open;
+    mover.enabled = !open && mode === "play";
+    input.x = input.y = 0;
+  },
+});
+let found = new Set();
+const foundKey = () => `omen.coins.${coins.seed}`;
+function placeCoins(seed) {
+  coins.place(seed);
+  try {
+    found = new Set(JSON.parse(localStorage.getItem(foundKey()) || "[]"));
+  } catch {
+    found = new Set();
+  }
+}
+function discover(it) {
+  const first = !found.has(it.def.sym);
+  if (first) {
+    found.add(it.def.sym);
+    try {
+      localStorage.setItem(foundKey(), JSON.stringify([...found]));
+    } catch {
+      /* ignore */
+    }
+    it.burst = 1.2;
+    particles.burst(it.group.position.clone(), "spark", 36, 3);
+    audio.chime([0, 7, 12, 16], 0.07);
+    kai.cheer = 0.9;
+    net.act("coin", it.def.sym);
+    ui.toast(`Discovered ${it.def.name}! (${found.size}/${coins.items.length}) · an educational collectible, not free crypto`, 4200);
+  }
+  mover.face(it.group.position);
+  coinCard.open(it.def, { firstFind: first });
+}
 
 // ------------------------------------------------------------------ what can KAI interact with?
 
@@ -551,6 +594,17 @@ const talkables = [
   { label: "Read the notice board", at: () => boardPos.clone().add(new THREE.Vector3()), head: () => boardPos.clone().addScaledVector(boardPos.clone().normalize(), 2.2), run: readBoard, range: 2.2 },
   { label: "Scan Maya's QR to pay", at: () => signs["maya-chai"].front(), head: () => signs["maya-chai"].top(), run: async () => startScan("maya-chai"), range: 1.8 },
   { label: "Scan Orin's QR to pay", at: () => signs["orin-relay"].front(), head: () => signs["orin-relay"].top(), run: async () => startScan("orin-relay"), range: 1.8 },
+  ...[0, 1, 2, 3, 4, 5].map((i) => ({
+    get label() {
+      const it = coins.items[i];
+      return it ? (found.has(it.def.sym) ? `Look at ${it.def.name}` : `Discover ${it.def.name}`) : "";
+    },
+    when: () => !!coins.items[i],
+    at: () => coins.groundAt(coins.items[i]),
+    head: () => coins.headAt(coins.items[i]),
+    run: async () => discover(coins.items[i]),
+    range: 2.2,
+  })),
 ];
 let near = null;
 function findNear() {
@@ -660,6 +714,7 @@ async function beginPlay(fresh) {
   mover.enabled = true;
   save();
   pill.hidden = false; // solo players need the Invite button too
+  placeCoins(courier.room || "blockhaven"); // same room → same coins for everyone
   if (courier.room) joinRoom(courier.room);
   else pill.querySelector(".count").textContent = "Solo";
 }
@@ -713,6 +768,7 @@ const net = createNet({
   },
 });
 function joinRoom(room) {
+  if (coins.seed !== room) placeCoins(room);
   net.join({ room, name: courier.name || "Courier", outfit: courier.outfit });
 }
 
@@ -800,6 +856,7 @@ function frame() {
 
   kai.update(dt, t);
   if (mode === "play") net.update(dt, t);
+  coins.update(dt, t, found);
   maya.update(dt, t);
   orin.update(dt, t);
   if (echo.group.visible) echo.update(dt, t);
@@ -869,6 +926,8 @@ window.__omen = {
   ui,
   net,
   courier,
+  coins,
+  coinCard,
   get mode() {
     return mode;
   },
