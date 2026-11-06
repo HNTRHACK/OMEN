@@ -22,7 +22,7 @@ export default defineConfig({
   build: {
     target: "es2022",
     chunkSizeWarningLimit: 1500,
-    // two pages: the game, and a merchant's ledger (its own device)
-    rollupOptions: { input: { main: "index.html", merchant: "merchant.html", moderate: "moderate.html" } },
+    // pages: the game, a merchant's ledger (its own device), moderation, and the Mumbai venue
+    rollupOptions: { input: { main: "index.html", merchant: "merchant.html", moderate: "moderate.html", expo: "expo.html" } },
   },
 });

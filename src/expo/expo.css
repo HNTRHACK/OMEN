@@ -1,0 +1,68 @@
+/* OMEN venue (expo.html): HUD, intro card, map. Builds on src/style.css. */
+body.expo { background: #d9d1c4; }
+.expo .fine { font-size: 15px; color: var(--muted); margin: 8px 0; }
+.expo .row-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+.expo .btn.small { font-size: 15px; padding: 5px 12px; box-shadow: 0 3px 0 var(--ink); }
+.expo a.btn { text-decoration: none; color: var(--ink); display: inline-block; }
+.expo .badge { display: inline-block; vertical-align: middle; font-family: var(--display); font-weight: 800; font-size: 11px; border: 1.5px solid var(--ink); padding: 1px 6px; border-radius: 4px; }
+.expo .badge.real { background: var(--teal); color: #fff; }
+.expo .badge.sim { background: var(--butter); }
+
+#intro { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 16px; background: linear-gradient(180deg, rgba(29, 47, 143, .35), rgba(43, 34, 48, .55)); }
+.intro-card { max-width: 520px; width: 100%; background: var(--paper); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 6px 6px 0 var(--ink); padding: 20px 22px; user-select: text; }
+.intro-card h1 { font-family: var(--display); font-weight: 800; font-size: clamp(30px, 6vw, 42px); margin: 0 0 6px; line-height: 1; }
+.intro-card .kicker { font-family: var(--display); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; font-size: 13px; color: #1d2f8f; margin: 0 0 4px; }
+.intro-card p { font-size: 18px; margin: 8px 0; }
+.intro-card label { display: grid; gap: 4px; font-size: 18px; margin-top: 10px; }
+.intro-card input { font: inherit; font-size: 20px; padding: 6px 10px; border: 2.5px solid var(--ink); border-radius: 10px; background: #fff; }
+
+.expo #hud { position: fixed; top: 14px; right: 14px; z-index: 6; display: flex; gap: 8px; align-items: center; }
+.pill { margin: 0; font-size: 16px; background: var(--paper); border: 2px solid var(--ink); border-radius: 999px; padding: 3px 12px; box-shadow: 2px 2px 0 var(--ink); }
+#act { display: none; }
+
+#expo-nav { position: fixed; left: 14px; top: 14px; z-index: 6; display: grid; gap: 6px; width: min(300px, calc(100vw - 28px)); }
+#minimap { width: 100%; height: auto; background: rgba(251, 243, 228, .92); border: 2.5px solid var(--ink); border-radius: 10px; box-shadow: 3px 3px 0 var(--ink); cursor: pointer; }
+#where { margin: 0; font-family: var(--display); font-weight: 800; font-size: 14px; background: var(--ink); color: var(--paper); border-radius: 8px; padding: 3px 9px; width: max-content; max-width: 100%; }
+#where:empty { display: none; }
+.travel { display: flex; flex-wrap: wrap; gap: 5px; }
+.travel .btn.small { font-size: 13px; padding: 3px 8px; box-shadow: 0 2px 0 var(--ink); }
+.travel .btn.here { outline: 3px solid #1d2f8f; outline-offset: 1px; }
+
+#expo-map { position: fixed; inset: 0; z-index: 25; display: grid; place-items: center; padding: 16px; background: rgba(43, 34, 48, .5); }
+#expo-map[hidden] { display: none; }
+.map-card { width: min(1000px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: var(--paper); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 6px 6px 0 var(--ink); padding: 14px 18px; user-select: text; }
+.map-card header { display: flex; justify-content: space-between; align-items: center; }
+.map-card h2 { font-family: var(--display); margin: 0; }
+.map-card .x { font-size: 26px; background: none; border: 0; cursor: pointer; }
+#bigmap { width: 100%; height: auto; border: 2px solid var(--ink); border-radius: 10px; background: #fffaf0; }
+.map-legend { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 8px; }
+.map-legend li { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; }
+.map-legend .sw { width: 22px; height: 22px; border: 2px solid var(--ink); border-radius: 6px; }
+.map-legend small { display: block; color: var(--muted); font-size: 15px; }
+
+#stick { position: fixed; left: -36px; top: -36px; width: 72px; height: 72px; border-radius: 50%; border: 3px solid var(--ink); background: rgba(251, 243, 228, .5); z-index: 5; pointer-events: none; }
+#fade { position: fixed; inset: 0; z-index: 20; background: #1d2f8f; opacity: 0; pointer-events: none; transition: opacity .2s; }
+#fade.on { opacity: 1; }
+
+@media (pointer: coarse) {
+  #act { display: block; position: fixed; right: 22px; bottom: 30px; width: 66px; height: 66px; border-radius: 50%; font-size: 22px; }
+  #expo-nav { width: min(220px, 52vw); }
+}
+@media (max-width: 560px) {
+  .travel .btn.small { font-size: 12px; }
+}
+
+/* exhibitor station sheet */
+#station { position: fixed; inset: 0; z-index: 24; display: grid; place-items: center; padding: 16px; background: rgba(43, 34, 48, .45); }
+#station[hidden] { display: none; }
+.st-sheet { width: min(560px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: var(--paper); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 6px 6px 0 var(--ink); padding: 14px 18px; user-select: text; font-size: 18px; }
+.st-head { display: flex; justify-content: space-between; align-items: center; }
+.st-head h2 { font-family: var(--display); margin: 0; }
+.st-head .x { font-size: 26px; background: none; border: 0; cursor: pointer; }
+.st-tag { font-family: var(--display); font-weight: 800; color: #1d2f8f; margin: 6px 0; }
+.st-form { display: grid; gap: 8px; margin: 10px 0; }
+.st-form label { display: grid; gap: 4px; }
+.st-form input, .st-form textarea { font: inherit; padding: 6px 10px; border: 2.5px solid var(--ink); border-radius: 10px; background: #fff; }
+.st-list { margin: 6px 0; padding-left: 20px; }
+.st-reply { margin: 8px 0; padding: 8px 12px; border-left: 4px solid #1d2f8f; background: #fffaf0; }
+.expo .err { color: #a3402f; }
