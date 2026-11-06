@@ -207,7 +207,6 @@ export function bindInput(input, { onAct, onOrbit }) {
   const sync = () => {
     input.y = (keys.has("w") || keys.has("arrowup") ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
     input.x = (keys.has("d") || keys.has("arrowright") ? 1 : 0) - (keys.has("a") || keys.has("arrowleft") ? 1 : 0);
-    input.run = keys.has("shift");
   };
   addEventListener("keydown", (e) => {
     if (e.target.closest?.("input, textarea")) return;
