@@ -36,6 +36,7 @@
         <button id="continue" class="btn" type="button" hidden>Continue</button>
         <button id="join" class="btn" type="button">Join World</button>
         <button id="friends" class="btn ghost" type="button">Play with friends</button>
+        <a id="to-venue" class="btn ghost" href="./expo.html">Visit the Mumbai venue</a>
       </div>
       <p id="mp-room" class="cc-room" hidden>Joining room <b></b> with friends</p>
       <p class="title-note">No wallet or sign-up needed to explore. Payments use Whitechain <b>testnet</b> USDT or <b>DEMO</b> credits; rupee amounts are quoted equivalents only.</p>
@@ -45,15 +46,26 @@
   <!-- Avatar creator: the live preview is your courier, in the world, behind this card -->
   <section id="creator" hidden aria-labelledby="cr-h">
     <form class="creator" id="courier" onsubmit="return false">
-      <header class="cr-head"><h2 id="cr-h">Your courier</h2><button id="cr-random" class="btn small ghost" type="button" title="Surprise me">Shuffle</button></header>
+      <header class="cr-head"><h2 id="cr-h">Your courier</h2><button id="cr-random" class="btn small ghost" type="button" title="Shuffle clothes and colours (keeps your face)">Shuffle</button></header>
+      <p class="cr-id"><span id="cr-id"></span> <button id="cr-world" class="linkish" type="button" hidden>Verify with World ID</button> <button id="cr-signout" class="linkish" type="button" hidden>Sign out</button></p>
+      <div class="cr-start" role="group" aria-label="Start your avatar">
+        <button id="cr-selfie" class="chip" type="button">📷 Take selfie</button>
+        <button id="cr-photo" class="chip" type="button">🖼 Upload photo</button>
+        <button id="cr-manual" class="chip" type="button">✎ Create manually</button>
+        <button id="cr-skip" class="chip" type="button">Skip · play as guest</button>
+      </div>
       <label class="cc-name">Name <input id="mp-name" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="KAI"></label>
       <div class="cr-tabs" role="tablist">
-        <button type="button" role="tab" data-tab="look" aria-selected="true">Look</button>
+        <button type="button" role="tab" data-tab="face" aria-selected="true">Face</button>
+        <button type="button" role="tab" data-tab="eyes" aria-selected="false">Eyes</button>
+        <button type="button" role="tab" data-tab="hair" aria-selected="false">Hair</button>
         <button type="button" role="tab" data-tab="outfit" aria-selected="false">Outfit</button>
-        <button type="button" role="tab" data-tab="extras" aria-selected="false">Extras &amp; pet</button>
+        <button type="button" role="tab" data-tab="extras" aria-selected="false">Accessories</button>
+        <button type="button" role="tab" data-tab="pet" aria-selected="false">Pet</button>
       </div>
       <div class="cr-panel" id="cr-panel" role="tabpanel"></div>
       <p class="cr-hint">Drag anywhere in the world to turn your courier around.</p>
+      <div class="cr-save-row"><button id="cr-save" class="btn small" type="button">Save avatar</button><button id="cr-regen" class="btn small ghost" type="button" title="Go back to the likeness made from your photo">Regenerate from selfie</button><button id="cr-reset" class="btn small ghost" type="button">Reset</button></div>
       <div class="title-actions">
         <button id="start" class="btn" type="button">Play as Guest</button>
         <button id="wallet-play" class="btn ghost" type="button">Connect Wallet</button>

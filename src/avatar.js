@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { toon } from "./assets.js";
 import { R, P } from "./palette.js";
 import { LOOK_OPTIONS, cleanLook } from "../shared/look.js";
+import { applyFace } from "./avatar-face.js";
 
 const O = LOOK_OPTIONS;
 const mesh = (geo, color, pos = [0, 0, 0], rot = [0, 0, 0], scale = [1, 1, 1]) => {
@@ -93,6 +94,9 @@ export function applyLook(c, raw) {
   const b = O.body[look.body];
   c._bs = new THREE.Vector3(b.sx, b.sy, b.sx); // Character.update squashes relative to this
   c.rig.scale.copy(c._bs);
+  // The optional face (shared/face.js): kept on the look object so it saves and syncs with it.
+  const face = applyFace(c, raw?.face, look);
+  if (face) look.face = face;
   return look;
 }
 
@@ -130,6 +134,7 @@ function petMesh(kind) {
 const tmp = new THREE.Vector3();
 /** A pet that trots (or flies) after its owner on the planet's surface. */
 export class Pet {
+  static flatWorld = false;
   constructor(scene, kind) {
     this.scene = scene;
     this.kind = kind;
@@ -140,7 +145,8 @@ export class Pet {
   }
   update(dt, owner, ownerSpeed) {
     const o = owner.position;
-    const up = o.clone().normalize();
+    const flat = Pet.flatWorld; // the expo hall has a flat floor at y = 0; Blockhaven is a sphere
+    const up = flat ? new THREE.Vector3(0, 1, 0) : o.clone().normalize();
     const back = new THREE.Vector3(0, 0, -1).applyQuaternion(owner.quaternion);
     const side = new THREE.Vector3(1, 0, 0).applyQuaternion(owner.quaternion);
     const flying = this.kind === 3;
@@ -151,7 +157,8 @@ export class Pet {
     this.t += dt * (4 + ownerSpeed * 2);
     const n = this.pos.clone().normalize();
     const h = flying ? 1.55 + Math.sin(this.t * 0.8) * 0.12 : Math.abs(Math.sin(this.t)) * Math.min(0.08, ownerSpeed * 0.02);
-    this.pos.copy(n.multiplyScalar(R));
+    if (flat) this.pos.y = 0;
+    else this.pos.copy(n.multiplyScalar(R));
     this.group.position.copy(this.pos).addScaledVector(up, h);
     const vel = tmp.copy(this.pos).sub(before);
     vel.sub(up.clone().multiplyScalar(vel.dot(up)));

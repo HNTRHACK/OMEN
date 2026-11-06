@@ -7,6 +7,9 @@ import { SPOTS } from "./layout.js";
 import { Character } from "./character.js";
 import { applyLook, syncPet } from "./avatar.js";
 import { LOOK_OPTIONS, DEFAULT_LOOK, cleanLook, lookFromOutfit, randomLook } from "../shared/look.js";
+import { FACE_OPTIONS, DEFAULT_FACE, cleanFace } from "../shared/face.js";
+import { createSelfie } from "./selfie.js";
+import * as worldId from "./world-id.js";
 import { createNet, roomFromUrl, newRoomCode, inviteUrl } from "./net.js";
 import { Collectibles } from "./collectibles.js";
 import { createCoinCard } from "./coincard.js";
@@ -847,15 +850,29 @@ function titleCam(t) {
 
 /** Avatar creator: a turntable around the courier, framed beside (wide) or above (narrow) the card. */
 const creatorLook = new THREE.Vector3();
+let creatorT = 0;
 function creatorCam(dt) {
-  creatorYaw += dt * 0.22;
+  creatorT += dt;
+  // Face, eyes, hair and accessories: a close-up that sways gently around the front of the face.
+  // Outfit and pet: the slow full-body turntable.
+  const close = ["face", "eyes", "hair", "extras"].includes(creatorTab);
+  if (close) creatorYaw = Math.sin(creatorT * 0.45) * 0.32;
+  else creatorYaw += dt * 0.22;
   const p = kai.group.position;
   const up = p.clone().normalize();
   const f = mover.fwd.clone().applyAxisAngle(up, creatorYaw);
   const wide = innerWidth > 760;
-  const pos = p.clone().addScaledVector(up, wide ? 1.5 : 2.0).addScaledVector(f, wide ? 4.1 : 4.8);
   const right = new THREE.Vector3().crossVectors(up, f).normalize(); // camera's screen-right, looking back at KAI
-  const look = p.clone().addScaledVector(up, wide ? 0.9 : 0.35).addScaledVector(right, wide ? 1.25 : 0);
+  let pos;
+  let look;
+  if (close) {
+    const head = kai.p.head.getWorldPosition(new THREE.Vector3());
+    pos = head.clone().addScaledVector(up, 0.32).addScaledVector(f, wide ? 1.75 : 2.3);
+    look = head.clone().addScaledVector(up, 0.24).addScaledVector(right, wide ? 0.52 : 0);
+  } else {
+    pos = p.clone().addScaledVector(up, wide ? 1.5 : 2.0).addScaledVector(f, wide ? 4.1 : 4.8);
+    look = p.clone().addScaledVector(up, wide ? 0.9 : 0.35).addScaledVector(right, wide ? 1.25 : 0);
+  }
   const k = 1 - Math.exp(-dt * 3.5);
   camera.position.lerp(pos, k);
   camera.up.lerp(up, k).normalize();
@@ -925,6 +942,8 @@ try {
   const saved = JSON.parse(localStorage.getItem("omen.courier") || "{}");
   courier.name = String(saved.name || "").slice(0, 16);
   courier.look = cleanLook(saved.look || lookFromOutfit(saved.outfit || 0)); // older saves only had an outfit
+  const face = cleanFace(saved.look?.face); // the face (shared/face.js) is kept beside the look
+  if (face) courier.look.face = face;
 } catch {
   /* ignore */
 }
@@ -1141,13 +1160,24 @@ function joinRoom(room) {
 
 // ------------------------------------------------------------------ landing + avatar creator
 
+// [source, key, label, kind]: source "look" = shared/look.js, "face" = shared/face.js
 const CREATOR_TABS = {
-  look: [["skin", "Skin", "color"], ["hair", "Hair colour", "color"], ["hairStyle", "Hair", "chip"], ["body", "Build", "chip"]],
-  outfit: [["jacket", "Jacket", "color"], ["pants", "Trousers", "color"], ["scarf", "Scarf", "color"], ["hat", "Hat", "chip"], ["hatColor", "Hat colour", "color"]],
-  extras: [["accessory", "Accessory", "chip"], ["pet", "Pet", "chip"]],
+  face: [["face", "headWidth", "Face width", "chip"], ["face", "headLength", "Face length", "chip"], ["face", "jaw", "Jaw & chin", "chip"], ["face", "nose", "Nose", "chip"], ["face", "mouth", "Mouth", "chip"], ["face", "ears", "Ears", "chip"], ["look", "skin", "Skin", "color"]],
+  eyes: [["face", "eyeSize", "Eye size", "chip"], ["face", "eyeSpacing", "Eye spacing", "chip"], ["face", "eyeColor", "Eye colour", "color"], ["face", "brows", "Eyebrows", "chip"]],
+  hair: [["look", "hair", "Hair colour", "color"], ["face", "hairStyle", "Hairstyle", "chip"], ["look", "hairStyle", "At the back", "chip"], ["face", "facialHair", "Facial hair", "chip"]],
+  outfit: [["look", "jacket", "Jacket", "color"], ["look", "pants", "Trousers", "color"], ["look", "scarf", "Scarf", "color"], ["look", "hat", "Hat", "chip"], ["look", "hatColor", "Hat colour", "color"], ["look", "body", "Build", "chip"]],
+  extras: [["face", "glasses", "Glasses", "chip"], ["look", "accessory", "Accessory", "chip"]],
+  pet: [["look", "pet", "Pet", "chip"]],
 };
+const OPTIONS = { look: LOOK_OPTIONS, face: FACE_OPTIONS };
+const valueOf = (src, key) => (src === "face" ? (courier.look.face || DEFAULT_FACE)[key] : courier.look[key]);
+/** Change one option. Face changes start from the current face (or the original courier's). */
+function setOption(src, key, i) {
+  if (src === "face") setLook({ ...courier.look, face: { ...(courier.look.face || DEFAULT_FACE), [key]: i } });
+  else setLook({ ...courier.look, [key]: i });
+}
 const hex = (n) => "#" + n.toString(16).padStart(6, "0");
-let creatorTab = "look";
+let creatorTab = "face";
 let creatorYaw = 0;
 
 function rememberCourier() {
@@ -1167,16 +1197,16 @@ function setLook(look) {
 function renderCreator() {
   const panel = document.getElementById("cr-panel");
   panel.innerHTML = CREATOR_TABS[creatorTab]
-    .map(([key, label, kind]) => {
-      const opts = LOOK_OPTIONS[key]
+    .map(([src, key, label, kind]) => {
+      const opts = OPTIONS[src][key]
         .map((o, i) => {
-          const on = courier.look[key] === i;
+          const on = valueOf(src, key) === i;
           return kind === "color"
-            ? `<button type="button" class="sw-btn" role="radio" aria-checked="${on}" aria-label="${o.name}" title="${o.name}" data-k="${key}" data-i="${i}" style="background:${hex(o.hex)}"></button>`
-            : `<button type="button" class="chip" role="radio" aria-checked="${on}" data-k="${key}" data-i="${i}">${o.name}</button>`;
+            ? `<button type="button" class="sw-btn" role="radio" aria-checked="${on}" aria-label="${o.name}" title="${o.name}" data-s="${src}" data-k="${key}" data-i="${i}" style="background:${hex(o.hex)}"></button>`
+            : `<button type="button" class="chip" role="radio" aria-checked="${on}" data-s="${src}" data-k="${key}" data-i="${i}">${o.name}</button>`;
         })
         .join("");
-      return `<div class="cr-row"><span class="cr-label" id="lbl-${key}">${label}</span><div class="cr-opts" role="radiogroup" aria-labelledby="lbl-${key}">${opts}</div></div>`;
+      return `<div class="cr-row"><span class="cr-label" id="lbl-${src}-${key}">${label}</span><div class="cr-opts" role="radiogroup" aria-labelledby="lbl-${src}-${key}">${opts}</div></div>`;
     })
     .join("");
   document.querySelectorAll(".cr-tabs [role=tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === creatorTab)));
@@ -1207,20 +1237,20 @@ function leaveCreatorAndPlay() {
   document.getElementById("cr-panel").addEventListener("click", (e) => {
     const b = e.target.closest("[data-k]");
     if (!b) return;
-    setLook({ ...courier.look, [b.dataset.k]: Number(b.dataset.i) });
+    setOption(b.dataset.s, b.dataset.k, Number(b.dataset.i));
     kai.wave = 0.6;
     renderCreator();
-    document.querySelector(`[data-k="${b.dataset.k}"][data-i="${b.dataset.i}"]`)?.focus();
+    document.querySelector(`[data-s="${b.dataset.s}"][data-k="${b.dataset.k}"][data-i="${b.dataset.i}"]`)?.focus();
   });
   document.getElementById("cr-panel").addEventListener("keydown", (e) => {
     const b = e.target.closest("[data-k]");
     if (!b || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
     e.preventDefault();
-    const n = LOOK_OPTIONS[b.dataset.k].length;
+    const n = OPTIONS[b.dataset.s][b.dataset.k].length;
     const i = (Number(b.dataset.i) + (e.key === "ArrowRight" ? 1 : n - 1)) % n;
-    setLook({ ...courier.look, [b.dataset.k]: i });
+    setOption(b.dataset.s, b.dataset.k, i);
     renderCreator();
-    document.querySelector(`[data-k="${b.dataset.k}"][data-i="${i}"]`)?.focus();
+    document.querySelector(`[data-s="${b.dataset.s}"][data-k="${b.dataset.k}"][data-i="${i}"]`)?.focus();
   });
   document.querySelector(".cr-tabs").addEventListener("click", (e) => {
     const t = e.target.closest("[data-tab]");
@@ -1229,10 +1259,139 @@ function leaveCreatorAndPlay() {
     renderCreator();
   });
   document.getElementById("cr-random").onclick = () => {
-    setLook(randomLook());
+    // only when asked: shuffle clothes and colours, never the face someone built from their photo
+    setLook({ ...randomLook(), ...(courier.look.face ? { face: courier.look.face } : {}) });
     kai.cheer = 0.8;
     renderCreator();
   };
+
+  // ---- selfie → likeness, manual editing, save / regenerate / reset, World ID
+  let generated = null; // the selfie result (option indices only), for "Regenerate from selfie"
+  try {
+    const g = JSON.parse(localStorage.getItem("omen.face.generated") || "null");
+    if (g?.face) generated = { face: cleanFace(g.face), colours: g.colours || {} };
+  } catch {
+    /* ignore */
+  }
+  const regen = document.getElementById("cr-regen");
+  const applyGenerated = () => {
+    const c = generated.colours;
+    setLook({
+      ...courier.look,
+      ...(c.skin !== undefined ? { skin: c.skin } : {}),
+      ...(c.hair !== undefined ? { hair: c.hair } : {}),
+      ...(courier.look.hat === 0 ? { hat: 1 } : {}), // the courier cap would hide the hair the photo suggested
+      ...(c.longHair ? { hairStyle: 1 } : {}), // long at the back
+      face: { ...generated.face, ...(c.eyeColor !== undefined ? { eyeColor: c.eyeColor } : {}), ...(c.longHair ? { hairStyle: 6 } : {}) },
+    });
+    creatorTab = "face";
+    renderCreator();
+    kai.cheer = 1;
+  };
+  regen.disabled = !generated;
+  const selfie = createSelfie({
+    toast: (t, ms) => ui.toast(t, ms),
+    onApply(r) {
+      generated = { face: r.face, colours: r.colours };
+      try {
+        localStorage.setItem("omen.face.generated", JSON.stringify(generated)); // indices only, never the photo
+      } catch {
+        /* ignore */
+      }
+      regen.disabled = false;
+      applyGenerated();
+      ui.toast("Here's your likeness. Fine-tune anything in the Face, Eyes and Hair tabs.", 5000);
+    },
+  });
+  document.getElementById("cr-selfie").onclick = () => selfie.open("camera");
+  document.getElementById("cr-photo").onclick = () => selfie.open("upload");
+  document.getElementById("cr-manual").onclick = () => {
+    if (!courier.look.face) setLook({ ...courier.look, face: { ...DEFAULT_FACE, brows: 1, mouth: 2, ears: 2 } });
+    creatorTab = "face";
+    renderCreator();
+    document.querySelector("#cr-panel [data-k]")?.focus();
+  };
+  document.getElementById("cr-skip").onclick = leaveCreatorAndPlay;
+  regen.onclick = () => generated && applyGenerated();
+  document.getElementById("cr-reset").onclick = () => {
+    if (!confirm("Reset your courier to the original look? (Your saved selfie result stays available under Regenerate.)")) return;
+    setLook({ ...DEFAULT_LOOK });
+    renderCreator();
+  };
+
+  let who = { state: "unavailable" };
+  let account = null; // the World ID account's avatar { id, revision } when signed in
+  const faceKey = () => (account ? `omen.face.${account.id}` : null);
+  async function refreshIdentity() {
+    who = await worldId.identity();
+    document.getElementById("cr-id").innerHTML = worldId.badge(who);
+    const btn = document.getElementById("cr-world");
+    btn.hidden = !((who.state === "guest" && who.configured) || who.state === "expired");
+    btn.textContent = who.state === "expired" ? "Sign in again" : "Verify with World ID";
+    const out = document.getElementById("cr-signout");
+    out.hidden = !["verified", "world-unverified", "expired"].includes(who.state);
+    out.textContent = who.state === "expired" ? "Continue as guest" : "Sign out";
+    if (who.state === "expired" || who.state === "guest") account = null;
+    if (who.state === "verified" || who.state === "world-unverified") {
+      try {
+        const a = await worldId.loadAvatar();
+        account = { id: a.id, revision: a.revision };
+        let face = null;
+        try {
+          face = cleanFace(JSON.parse(localStorage.getItem(faceKey()) || "null"));
+        } catch {
+          /* ignore */
+        }
+        courier.name = a.displayName || courier.name;
+        document.getElementById("mp-name").value = courier.name;
+        setLook({ ...a.look, ...(face ? { face } : {}) });
+        renderCreator();
+      } catch {
+        /* keep the local look */
+      }
+    }
+  }
+  document.getElementById("cr-world").onclick = async (e) => {
+    e.target.disabled = true;
+    try {
+      await worldId.signIn();
+    } catch (err) {
+      ui.toast(`World ID sign-in isn't available right now (${err.message}). You can keep playing as a guest.`, 5000);
+      e.target.disabled = false;
+    }
+  };
+  document.getElementById("cr-signout").onclick = async () => {
+    try {
+      await worldId.signOut();
+    } catch {
+      /* the cookie is cleared either way */
+    }
+    location.replace(location.pathname + location.search); // reconnects /world with the guest identity
+  };
+  document.getElementById("cr-save").onclick = async () => {
+    rememberCourier();
+    if (account) {
+      const { face, ...base } = courier.look;
+      try {
+        const a = await worldId.saveAvatar(courier.name.length >= 2 ? courier.name : undefined, base, account.revision);
+        account.revision = a.revision;
+        if (face) localStorage.setItem(faceKey(), JSON.stringify(face));
+        ui.toast("Avatar saved to your World ID account.", 3500);
+      } catch (err) {
+        ui.toast(err.code === "avatar_conflict" ? "Your avatar changed on another device. Reloading it…" : `Couldn't save to your account (${err.message}). It's saved on this device.`, 5000);
+        if (err.code === "avatar_conflict") refreshIdentity();
+      }
+    } else ui.toast("Avatar saved on this device. Verify with World ID to keep it with your account.", 4000);
+    kai.cheer = 1;
+  };
+  if (new URLSearchParams(location.search).get("world_id") === "success") {
+    const u = new URL(location.href);
+    u.searchParams.delete("world_id");
+    history.replaceState(null, "", u.pathname + u.search);
+    ui.toast("Signed in with World ID.", 3500);
+  }
+  refreshIdentity();
+  window.__omenAvatar = { selfie, refreshIdentity, identity: () => who }; // test hook
   document.getElementById("cr-back").onclick = () => {
     document.getElementById("creator").hidden = true;
     document.getElementById("title").hidden = false;
@@ -1390,6 +1549,8 @@ window.__omen = {
   alfred,
   alfredUI,
   THREE, // test hook only: lets browser tests raycast the real scene
+  Character, // test hooks: build a second courier from a look, as another player would see it
+  applyLook,
   scene,
   get mode() {
     return mode;

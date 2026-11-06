@@ -218,3 +218,40 @@ button { font: inherit; color: inherit; }
   .creator { max-height: 58dvh; }
   .cr-panel { min-height: 0; }
 }
+
+/* ---- avatar creator: photo start, identity badge, save row; the selfie sheet ---- */
+.cr-id { margin: 2px 0 6px; font-size: 15px; }
+.id-badge { display: inline-block; font-family: var(--display); font-weight: 800; font-size: 12px; border: 2px solid var(--ink); border-radius: 999px; padding: 1px 9px; background: var(--paper); }
+.id-badge.verified { background: #2f7a4b; color: #fff; }
+.id-badge.world { background: var(--butter); }
+.linkish { background: none; border: 0; padding: 0; font: inherit; color: var(--teal); text-decoration: underline; cursor: pointer; }
+.cr-start { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.cr-start .chip { font-size: 15px; }
+.cr-tabs { flex-wrap: wrap; }
+.cr-save-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+.cr-save-row .btn.small { font-size: 15px; padding: 5px 12px; box-shadow: 0 3px 0 var(--ink); }
+.cr-save-row button:disabled { opacity: .5; }
+
+#selfie { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 14px; background: rgba(43, 34, 48, .55); }
+#selfie[hidden] { display: none; }
+.sf-sheet { width: min(520px, 100%); max-height: calc(100vh - 28px); overflow: auto; background: var(--paper); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 6px 6px 0 var(--ink); padding: 14px 18px; user-select: text; font-size: 18px; }
+.sf-head { display: flex; justify-content: space-between; align-items: center; }
+.sf-head h2 { font-family: var(--display); margin: 0; }
+.sf-head .x { font-size: 26px; background: none; border: 0; cursor: pointer; }
+.sf-points { padding-left: 20px; margin: 8px 0; }
+.sf-points li { margin: 4px 0; }
+.sf-consent { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0; font-weight: 700; }
+.sf-consent input { margin-top: 5px; width: 18px; height: 18px; }
+.sf-cam { position: relative; border: 3px solid var(--ink); border-radius: 12px; overflow: hidden; background: #111; aspect-ratio: 4 / 3; }
+.sf-cam video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.sf-oval { position: absolute; left: 50%; top: 50%; width: 46%; height: 72%; transform: translate(-50%, -50%); border: 3px dashed rgba(251, 243, 228, .85); border-radius: 50%; pointer-events: none; }
+.sf-drop { display: grid; gap: 8px; padding: 18px; border: 3px dashed var(--ink); border-radius: 12px; background: #fffaf0; cursor: pointer; }
+.sf-crop { display: block; width: min(360px, 100%); height: auto; margin: 6px auto; border: 3px solid var(--ink); border-radius: 12px; touch-action: none; cursor: grab; }
+.sf-zoom, .sf-side { display: grid; gap: 4px; margin: 6px 0; }
+.sf-warn { background: #fff2cc; border: 2px solid var(--ink); border-radius: 10px; padding: 6px 10px 6px 26px; }
+#selfie .row-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+#selfie .fine { font-size: 15px; color: var(--muted); }
+#selfie .err { color: #a3402f; }
+#selfie .btn:disabled { opacity: .5; }
+.nametag .vh { display: inline-block; margin-left: 5px; padding: 0 5px; border-radius: 8px; background: #2f7a4b; color: #fff; font-family: var(--display); font-weight: 800; font-size: 11px; vertical-align: 1px; }
+.id-badge.expired { background: #f6dcd5; }
