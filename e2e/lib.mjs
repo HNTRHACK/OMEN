@@ -32,6 +32,36 @@ export async function enter(browser, url = BASE, { name, outfit, viewport = { wi
   return { page, logs, ctx };
 }
 
+/**
+ * A browser context whose window.ethereum forwards to a LOCAL anvil fork, as `account`
+ * (anvil's dev accounts are unlocked, so no keys are involved). Records every wallet method.
+ */
+export async function forkWalletContext(browser, account, rpc = process.env.FORK_RPC || "http://127.0.0.1:8545", viewport = { width: 1280, height: 800 }) {
+  const ctx = await browser.newContext({ viewport });
+  await ctx.addInitScript(({ account, rpc }) => {
+    window.__walletCalls = [];
+    window.ethereum = {
+      on() {},
+      async request({ method, params }) {
+        window.__walletCalls.push(method);
+        if (method === "eth_requestAccounts" || method === "eth_accounts") return [account];
+        if (method === "wallet_switchEthereumChain") {
+          if (parseInt(params[0].chainId, 16) === 1874) return null;
+          throw Object.assign(new Error("Unrecognized chain"), { code: 4902 });
+        }
+        if (method === "wallet_addEthereumChain") return null;
+        const r = await (await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) })).json();
+        if (r.error) throw Object.assign(new Error(r.error.message), { code: r.error.code });
+        return r.result;
+      },
+    };
+  }, { account, rpc });
+  return ctx;
+}
+
+export const rpc = async (method, params, url = process.env.FORK_RPC || "http://127.0.0.1:8545") =>
+  (await (await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) })).json()).result;
+
 /** Exit non-zero if any check failed, so CI can use these. */
 export function finish(results) {
   const bad = Object.entries(results).filter(([, ok]) => !ok);

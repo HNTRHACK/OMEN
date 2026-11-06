@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#F6C7A1">
+  <title>Merchant Ledger · OMEN</title>
+  <meta name="description" content="A Blockhaven merchant's live ledger: payments arrive as they settle on Whitechain.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Patrick+Hand&display=swap" rel="stylesheet">
+</head>
+<body>
+  <main class="ledger">
+    <header class="lh">
+      <div>
+        <p class="kicker">Merchant ledger</p>
+        <h1 id="m-name">Blockhaven merchant</h1>
+      </div>
+      <p id="m-status" class="status" role="status"><span class="dot"></span><span>Locked</span></p>
+    </header>
+
+    <form id="unlock" class="card unlock">
+      <label>Merchant
+        <select id="m-pick" name="merchant"></select>
+      </label>
+      <label>Access key
+        <input id="m-key" name="key" type="password" autocomplete="current-password" required placeholder="from the gateway operator">
+      </label>
+      <button class="btn" type="submit">Open the ledger</button>
+      <p class="fine">The key only unlocks this merchant's own payments. It stays in this tab.</p>
+    </form>
+
+    <section id="board" hidden>
+      <div id="flash" class="card flash" hidden aria-live="assertive"></div>
+      <div class="totals card">
+        <div><span class="lbl">Confirmed today</span><b id="t-count">0</b></div>
+        <div><span class="lbl">Quoted INR</span><b id="t-inr">₹0.00</b><small>DEMO INR SETTLEMENT</small></div>
+        <div><span class="lbl">Testnet USDT received</span><b id="t-usdt">0</b><small>on Whitechain Sepolia</small></div>
+      </div>
+      <div class="row-actions">
+        <button id="csv" class="btn small ghost" type="button">Export CSV</button>
+        <button id="wallet" class="btn small ghost" type="button">Connect payout wallet (for refunds)</button>
+        <span id="w-info" class="fine"></span>
+      </div>
+      <ol id="list" class="entries" aria-label="Payments"></ol>
+      <p class="fine legend"><span class="badge real">TESTNET CRYPTO</span> real Whitechain Sepolia test USDT (no monetary value) · <span class="badge demo">DEMO</span> play credits · <span class="badge sim">DEMO INR SETTLEMENT</span> rupees are a quoted equivalent; no payout provider is integrated, so no rupees move and there is no bank reference.</p>
+    </section>
+  </main>
+  <script type="module" src="/src/merchant.js"></script>
+</body>
+</html>

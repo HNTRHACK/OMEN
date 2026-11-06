@@ -19,5 +19,10 @@ const gateway = () => ({
 export default defineConfig({
   base: "./",
   plugins: [gateway()],
-  build: { target: "es2022", chunkSizeWarningLimit: 1500 },
+  build: {
+    target: "es2022",
+    chunkSizeWarningLimit: 1500,
+    // two pages: the game, and a merchant's ledger (its own device)
+    rollupOptions: { input: { main: "index.html", merchant: "merchant.html" } },
+  },
 });

@@ -93,6 +93,8 @@ export function merchantView(p) {
     amount: p.quote.tokenAmount,
     payer: p.payer || null,
     txHash: p.txHash || null,
+    orderId: p.chain?.orderId || null, // on-chain order id, needed for refunds
+    amountUnits: p.quote.tokenUnits,
     relayed: !!p.relayed,
     inr: p.payout ? { real: !!p.payout.real, label: p.payout.label } : null,
     note: p.upi?.note || "",
