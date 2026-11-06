@@ -35,6 +35,10 @@ function plan(g, w, h, pad) {
     g.arc(px, pz, Math.max(1.5, s * 1.2), 0, Math.PI * 2);
     g.fill();
   }
+  // the festival pavilion
+  g.fillStyle = "#e2581e";
+  const [tx0, tz0] = P(L.TENT.x - L.TENT.w / 2, L.TENT.z - L.TENT.d / 2);
+  g.fillRect(tx0, tz0, L.TENT.w * s, L.TENT.d * s);
   // the Main Stage deck
   g.fillStyle = "#1f1c25";
   const [sx, sz] = P(L.STAGE.x0, L.STAGE.z0);

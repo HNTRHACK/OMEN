@@ -36,7 +36,7 @@ export const dividers = [PAVILIONS[0].x1, PAVILIONS[1].x1];
 /** Tree columns, roughly on a 20 m grid, kept clear of portals, the stage and the seating. */
 export const COLUMNS = [
   [-79, -12], [-41.5, -12], [-79, -32], [-41.5, -32],
-  [-24, -14], [18, -14], [-3, -27], [-24, -40], [18, -40],
+  [-24, -14], [18, -14], [-24, -40], [18, -40], // (the centre column became the festival pavilion)
   [44, -14], [68, -14], [44, -38], [68, -38],
 ].map(([x, z]) => ({ x, z, r: 0.55 }));
 
@@ -77,6 +77,22 @@ export function groundAt(x, z) {
 }
 /** The highest step a walker climbs without jumping. */
 export const STEP_UP = 0.45;
+
+// ---------------------------------------------------------------- the festival pavilion (Pavilion 2 centre)
+// An orange-framed tent with a draped fabric canopy and festival lights, straight ahead of the
+// arrival point through the middle portal. Open on all four sides; walk in from any side.
+export const TENT = {
+  x: -3, z: -27, w: 15, d: 11, h: 6.8, post: 0.7, canopy: 6.2,
+  counters: [{ x: -3, z: -31.0, w: 5.2, d: 0.9 }, { x: -8.4, z: -29.0, w: 0.9, d: 2.6 }, { x: 2.4, z: -29.0, w: 0.9, d: 2.6 }],
+  tables: [{ x: -6.2, z: -23.9 }, { x: 0.2, z: -23.9 }],
+  plants: [{ x: -11.3, z: -21.0 }, { x: 5.3, z: -21.0 }, { x: -11.3, z: -33.0 }, { x: 5.3, z: -33.0 }],
+};
+export const tentPosts = () => {
+  const t = TENT;
+  return [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => ({ x: t.x + sx * (t.w / 2 - t.post / 2), z: t.z + sz * (t.d / 2 - t.post / 2) }));
+};
+/** Inside the tent's footprint (where the camera must stay under the canopy). */
+export const inTent = (x, z) => Math.abs(x - TENT.x) < TENT.w / 2 && Math.abs(z - TENT.z) < TENT.d / 2;
 
 // ---------------------------------------------------------------- the exhibitor corridor (Pavilion 2)
 // Built against Pavilion 2's long north wall (the one with the blue mandala band), continuing round
@@ -155,6 +171,11 @@ export function propBoxes() {
   for (const x of [s.truss.x0, s.truss.x1]) b.push({ x0: x - 0.4, x1: x + 0.4, z0: s.truss.z - 0.4, z1: s.truss.z + 0.4, kind: "truss" });
   b.push({ x0: SPAWN.x - 1.3, x1: SPAWN.x + 1.3, z0: 4.2, z1: 4.9, kind: "totem" });
   for (const st of STATIONS) b.push(stationBox(st));
+  const hp = TENT.post / 2;
+  for (const p of tentPosts()) b.push({ x0: p.x - hp, x1: p.x + hp, z0: p.z - hp, z1: p.z + hp, kind: "tent-post" });
+  for (const c of TENT.counters) b.push({ x0: c.x - c.w / 2, x1: c.x + c.w / 2, z0: c.z - c.d / 2, z1: c.z + c.d / 2, kind: "tent-counter" });
+  for (const t of TENT.tables) b.push({ x0: t.x - 1.15, x1: t.x + 1.15, z0: t.z - 1.15, z1: t.z + 1.15, kind: "tent-seating" });
+  for (const p of TENT.plants) b.push({ x0: p.x - 0.45, x1: p.x + 0.45, z0: p.z - 0.45, z1: p.z + 0.45, kind: "tent-plant" });
   for (const dx of [-7.5, 7.5]) b.push({ x0: SPAWN.x + dx - 0.6, x1: SPAWN.x + dx + 0.6, z0: 15.3, z1: 17.7, kind: "arch" });
   return b;
 }

@@ -94,3 +94,19 @@ test("exhibitor corridor: 13 stations in order, facing in, no overlaps, a 6 m+ c
   const nearestColumn = Math.min(...L.COLUMNS.filter((c) => c.x > -36.75 && c.x < 30.75).map((c) => c.z - c.r));
   assert.ok(nearestColumn - deepest >= 6, `corridor is only ${nearestColumn - deepest} m wide`);
 });
+
+test("festival pavilion: replaces only the centre column; open, walkable inside, clear of the corridor and spawn", () => {
+  const t = L.TENT;
+  assert.ok(!L.COLUMNS.some((c) => L.inTent(c.x, c.z)), "no column inside the tent");
+  assert.equal(L.COLUMNS.length, 12, "every other column kept");
+  // a straight walk in from the front opening to the back counter, down the middle, hits nothing
+  const blocked = (x, z) => L.solidBoxes().some((b) => x > b.x0 - 0.42 && x < b.x1 + 0.42 && z > b.z0 - 0.42 && z < b.z1 + 0.42);
+  for (let z = t.z + t.d / 2 + 2; z > t.counters[0].z + 1.0; z -= 0.25) assert.ok(!blocked(t.x, z), `aisle blocked at z=${z}`);
+  // and straight through from side to side at the middle
+  for (let x = t.x - t.w / 2 - 1; x < t.x + t.w / 2 + 1; x += 0.25) assert.ok(!blocked(x, t.z + 0.6), `side passage blocked at x=${x}`);
+  // the exhibitor corridor in front of the north stations stays at least 10 m clear of the tent
+  const fronts = L.STATIONS.filter((s) => s.wall === "north").map((s) => L.stationFront(s).z);
+  assert.ok(Math.max(...fronts) < t.z - t.d / 2 - 10);
+  assert.ok(!L.inTent(L.SPAWN.x, L.SPAWN.z));
+  assert.ok(t.canopy < L.HALL_H - 4, "canopy well under the 12 m ceiling");
+});
