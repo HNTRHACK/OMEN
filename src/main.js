@@ -17,6 +17,8 @@ import { ui, bindInput, clearHeldKeys } from "./ui.js";
 import { audio } from "./audio.js";
 import { toon, model } from "./assets.js";
 import { createShops } from "./shop.js";
+import { createCommunityUI } from "./community.js";
+import { BOARDS } from "../shared/billboards.js";
 import { PLOTS, SHOP_COLORS } from "../shared/storefronts.js";
 import { initPay } from "./pay/index.js";
 import { createPerf } from "./perf.js";
@@ -400,16 +402,25 @@ async function talkEcho() {
 
 async function readBoard() {
   net.act("talk", "board");
+  openForumAfter = false;
   busy = true;
   mover.enabled = false;
   try {
-    await ui.say("NOTICE BOARD", "RELAY DOWN AGAIN?? ... LOST: 1 PAYMENT #4127 ... FESTIVAL TONIGHT ... and, in very small writing: WHO SIGNED BLOCK 88?");
+    const pick = await ui.say("NOTICE BOARD", "RELAY DOWN AGAIN?? ... LOST: 1 PAYMENT #4127 ... FESTIVAL TONIGHT ... and, pinned on top: COMMUNITY BOARD: ASK, SELL, CHAT.", {
+      choices: [
+        { label: "Open the community board", value: "forum" },
+        { label: "Just reading", value: "no" },
+      ],
+    });
+    if (pick === "forum") openForumAfter = true;
   } finally {
     ui.closeDialogue();
     mover.enabled = true;
     busy = false;
   }
+  if (openForumAfter) community.openForum();
 }
+let openForumAfter = false;
 
 function celebrate() {
   setFestival(true);
@@ -517,6 +528,7 @@ for (const pl of PLOTS) {
     m.traverse((o) => o.isMesh && ((o.castShadow = true), (o.receiveShadow = true)));
     scene.add(m);
     W.colliders.push({ dir: mapDir(pl.at[0], pl.at[1]), r: 1.4 });
+    W.camBlockers.push(m); // the camera pulls in front of stalls instead of looking through them
   }
   // a hanging sign in front of the stall, facing the lane
   const g = new THREE.Group();
@@ -537,6 +549,7 @@ for (const pl of PLOTS) {
   g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3().crossVectors(at, fwd), at, fwd));
   scene.add(g);
   W.colliders.push({ dir: spot.clone().normalize(), r: 0.3 });
+  W.camBlockers.push(g);
   stalls[pl.id] = { plot: pl, group: g, board, shop: null, front: () => g.localToWorld(new THREE.Vector3(0, 0, 1.2)), top: () => g.localToWorld(new THREE.Vector3(0, 2.6, 0)), local: (x, y, z) => g.localToWorld(new THREE.Vector3(x, y + 1.2, z)) };
 }
 function paintStalls(data) {
@@ -702,9 +715,19 @@ const talkables = [
   { label: "Talk to Orin", at: () => orin.local(0, 0, 1.6), head: () => headOf(orin), run: talkOrin, range: 2.6 },
   { label: "Talk to the stranger", at: () => echo.local(0, 0, 1.4), head: () => headOf(echo), run: talkEcho, range: 2.6, when: () => echo.group.visible },
   { get label() { return state.relay ? "Look at Relay 03" : "Examine Relay 03"; }, at: () => relayPos, head: () => relayPos.clone().addScaledVector(relayPos.clone().normalize(), 4.6), run: useRelay, range: 2.7 },
-  { label: "Read the notice board", at: () => boardPos.clone().add(new THREE.Vector3()), head: () => boardPos.clone().addScaledVector(boardPos.clone().normalize(), 2.2), run: readBoard, range: 2.2 },
+  { label: "Notice board · community", at: () => boardPos.clone().add(new THREE.Vector3()), head: () => boardPos.clone().addScaledVector(boardPos.clone().normalize(), 2.2), run: readBoard, range: 2.2 },
   { label: "Scan Maya's QR to pay", at: () => signs["maya-chai"].front(), head: () => signs["maya-chai"].top(), run: async () => startScan("maya-chai"), range: 1.8 },
   { label: "Scan Orin's QR to pay", at: () => signs["orin-relay"].front(), head: () => signs["orin-relay"].top(), run: async () => startScan("orin-relay"), range: 1.8 },
+  // hoardings (community is created further down, so look it up lazily)
+  ...BOARDS.map((bd, i) => ({
+    get label() {
+      return community.boards[i].shown ? `Look at the ${bd.label}` : `Advertise on the ${bd.label}`;
+    },
+    at: () => community.boards[i].front(),
+    head: () => community.boards[i].top(),
+    run: async () => community.openBoard(bd.id),
+    range: 2.6,
+  })),
   ...PLOTS.map((pl) => ({
     get label() {
       const st = stalls[pl.id];
@@ -936,8 +959,42 @@ addEventListener("keydown", (e) => {
   if ((e.key === "m" || e.key === "M") && mode === "play" && !busy && !ui.dialogueOpen() && !e.target.closest?.("input, textarea, select")) shops.openDirectory();
 });
 
+// ------------------------------------------------------------------ community: forum, chat, billboards
+
+const community = createCommunityUI({
+  scene,
+  camera,
+  R,
+  mapDir,
+  tangentToward,
+  toon,
+  P,
+  colliders: W.colliders,
+  net,
+  pay,
+  ui,
+  feed,
+  chime: () => audio.chime([7, 12], 0.07),
+  myName: () => courier.name || "Courier",
+  myId: () => net.id,
+  onOpenChange(open) {
+    clearHeldKeys();
+    busy = open;
+    mover.enabled = !open && mode === "play";
+    input.x = input.y = 0;
+  },
+});
+W.camBlockers.push(...community.boards.map((b) => b.group)); // the camera stops in front of hoardings
+addEventListener("keydown", (e) => {
+  if ((e.key === "t" || e.key === "T") && mode === "play" && !busy && !ui.dialogueOpen() && !e.target.closest?.("input, textarea, select")) {
+    e.preventDefault();
+    community.openChat();
+  }
+});
+
 function joinRoom(room) {
   shops.refresh();
+  community.refreshAds();
   if (coins.seed !== room) placeCoins(room);
   net.join({ room, name: courier.name || "Courier", look: courier.look });
 }
@@ -1105,6 +1162,7 @@ function frame() {
   kaiPet.pet?.update(dt, kai.group, mover.speed);
   if (mode === "play") net.update(dt, t);
   coins.update(dt, t, found);
+  community.update((id) => (id === net.id ? headOf(kai).addScaledVector(kai.group.position.clone().normalize(), 0.75) : net.remotes.get(id)?.c.local(0, 2.55, 0)));
   maya.update(dt, t);
   orin.update(dt, t);
   if (echo.group.visible) echo.update(dt, t);
@@ -1186,6 +1244,9 @@ window.__omen = {
   perf,
   stalls,
   shops,
+  community,
+  THREE, // test hook only: lets browser tests raycast the real scene
+  scene,
   get mode() {
     return mode;
   },

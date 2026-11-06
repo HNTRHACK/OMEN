@@ -117,7 +117,7 @@ test("ads: pending → approved → live for everyone → expires", () => {
 
 test("ads: 3-day ads go live only after the rental is paid (DEMO here)", async () => {
   const { community, payments } = world();
-  const ad = community.submitAd(B, "Ravi", { boardId: "board-market", title: "Ravi's Teas", days: 3 });
+  const ad = community.submitAd(B, "Ravi", { boardId: "board-well", title: "Ravi's Teas", days: 3 });
   community.moderate({ action: "approve", id: ad.id });
   assert.equal(community.myAds(B)[0].status, "awaiting_rent");
   assert.equal(community.liveAds().length, 0);

@@ -12,7 +12,7 @@ const gateway = () => ({
     // Socket.IO (multiplayer + merchant notifications) rides on Vite's own HTTP server.
     if (server.httpServer) notifier.attach(server.httpServer, handle.community);
     logStatus("mounted at /api (dev)");
-    server.middlewares.use((req, res, next) => (req.url.startsWith("/api/") ? handle(req, res) : next()));
+    server.middlewares.use((req, res, next) => (req.url.startsWith("/api/") || req.url.startsWith("/uploads/") ? handle(req, res) : next()));
   },
 });
 
@@ -23,6 +23,6 @@ export default defineConfig({
     target: "es2022",
     chunkSizeWarningLimit: 1500,
     // two pages: the game, and a merchant's ledger (its own device)
-    rollupOptions: { input: { main: "index.html", merchant: "merchant.html" } },
+    rollupOptions: { input: { main: "index.html", merchant: "merchant.html", moderate: "moderate.html" } },
   },
 });

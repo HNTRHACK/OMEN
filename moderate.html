@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Moderation · OMEN</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Patrick+Hand&display=swap" rel="stylesheet">
+</head>
+<body>
+  <main class="ledger">
+    <header class="lh"><div><p class="kicker">Blockhaven</p><h1>Moderation</h1></div><p id="m-status" class="status" role="status"><span class="dot"></span><span>Locked</span></p></header>
+    <form id="unlock" class="card unlock">
+      <label>Moderator key<input id="key" type="password" autocomplete="current-password" required></label>
+      <button class="btn" type="submit">Open the queue</button>
+      <p class="fine">The key stays in this tab. Every action applies to everyone in Blockhaven immediately.</p>
+    </form>
+    <section id="board" hidden>
+      <h2>Ads waiting for review</h2>
+      <ol id="ads" class="entries" aria-label="Pending ads"></ol>
+      <h2>Reported</h2>
+      <ol id="reports" class="entries" aria-label="Reported content"></ol>
+      <h2>Muted couriers</h2>
+      <ol id="muted" class="entries" aria-label="Muted couriers"></ol>
+    </section>
+  </main>
+  <script type="module" src="/src/moderate.js"></script>
+</body>
+</html>

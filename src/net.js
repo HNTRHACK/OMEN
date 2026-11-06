@@ -195,6 +195,9 @@ export function createNet({ scene, camera, local, feed, onCount = () => {} }) {
       if (sock?.connected) sock.emit(ev, data, ack);
       else ack?.({ error: "Not connected." });
     },
+    get id() {
+      return me;
+    },
     get connected() {
       return !!sock?.connected;
     },
