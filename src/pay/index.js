@@ -79,7 +79,7 @@ export function initPay({ onStage = () => {}, onOpenChange = () => {} } = {}) {
     e.stopPropagation(); // keep WASD/E/Tab away from the game while the sheet is open
     if (e.key === "Escape") close();
   });
-  root.addEventListener("keyup", (e) => e.stopPropagation());
+  // keyup is NOT stopped: the game must always hear a key being released, or it stays held.
 
   const hudBtn = document.createElement("button");
   hudBtn.id = "wallet-btn";

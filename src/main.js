@@ -8,7 +8,7 @@ import { Character } from "./character.js";
 import { Mover, CameraRig } from "./player.js";
 import { InkPass } from "./post.js";
 import { Envelope, Particles, Smoke, Birds, flying } from "./fx.js";
-import { ui, bindInput } from "./ui.js";
+import { ui, bindInput, clearHeldKeys } from "./ui.js";
 import { audio } from "./audio.js";
 import { toon } from "./assets.js";
 import { initPay } from "./pay/index.js";
@@ -182,6 +182,7 @@ let busy = false;
 const headOf = (c) => c.local(0, 1.75, 0);
 
 async function converse(npc, fn) {
+  clearHeldKeys();
   busy = true;
   mover.enabled = false;
   input.x = input.y = 0;
@@ -196,6 +197,7 @@ async function converse(npc, fn) {
     kai.talk = npc.talk = 0;
     npc.headTarget = 0;
     rig.talk = null;
+    clearHeldKeys();
     mover.enabled = true;
     busy = false;
   }
@@ -402,6 +404,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 let scanAfter = null; // a conversation can end by sending KAI to a merchant's QR sign
 const pay = initPay({
   onOpenChange(open) {
+    clearHeldKeys();
     busy = open;
     mover.enabled = !open && mode === "play";
     input.x = input.y = 0;
@@ -658,7 +661,7 @@ const lightDir = new THREE.Vector3();
 let saveT = 0;
 
 function frame() {
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const dt = Math.min(clock.getDelta(), 0.1); // real-time down to 10 fps; beyond that, slow down rather than tunnel
   const t = clock.elapsedTime;
 
   if (mode === "title") {
@@ -751,6 +754,8 @@ window.__omen = {
   pay,
   signs,
   startScan,
+  camera,
+  ui,
   get mode() {
     return mode;
   },

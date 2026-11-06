@@ -198,6 +198,10 @@ ui.dialogueOpen = () => !$("#dialogue").hidden;
 
 // ------------------------------------------------------------------ input
 
+let releaseKeys = () => {};
+/** Drop every held movement key (call when an overlay takes or returns the keyboard). */
+export const clearHeldKeys = () => releaseKeys();
+
 export function bindInput(input, { onAct, onOrbit }) {
   const keys = new Set();
   const sync = () => {
@@ -228,10 +232,14 @@ export function bindInput(input, { onAct, onOrbit }) {
     keys.delete(e.key.toLowerCase());
     sync();
   });
-  addEventListener("blur", () => {
+  // Forget held keys whenever the game loses the keyboard (window blur, tab hidden, an overlay
+  // opening or closing); otherwise a key released elsewhere stays "down" and KAI walks on alone.
+  releaseKeys = () => {
     keys.clear();
     sync();
-  });
+  };
+  addEventListener("blur", releaseKeys);
+  document.addEventListener("visibilitychange", releaseKeys);
 
   // drag to look around
   const canvas = $("#scene");
