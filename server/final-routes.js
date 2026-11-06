@@ -5,7 +5,11 @@
 // intent; the ChaiPay relayer submits it and pays the gas; USDT moves from the payer's ChaiPay
 // balance into an escrowed order. We never report success from the relayer's word alone: the
 // order must be on-chain (an OrderOpened log for this payer in the returned transaction).
-import { createPublicClient, http, parseAbi, parseEventLogs, verifyTypedData, getAddress, isAddress } from "viem";
+import { createPublicClient, createWalletClient, http, parseAbi, parseEventLogs, verifyTypedData, getAddress, isAddress, defineChain } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { CHAIPAY as C, PAY_TYPES, PAY_DOMAIN, TUTORIAL_PAYEE_HASH, TUTORIAL_MAX } from "../shared/chaipay.js";
 export const CHAIPAY = { ...C, rpc: process.env.WHITECHAIN_RPC || "https://rpc.testnet.whitechain.io/" };
@@ -64,7 +68,62 @@ export function mountFinalRoutes(final, { fetchImpl = fetch, chain = null, relay
     return { txHash, orderId: log.args.orderId.toString(), block: receipt.blockNumber.toString(), explorer: `${CHAIPAY.explorer}/tx/${txHash}`, usdtAmount: intent.usdtAmount.toString(), inrPaise: intent.inrPaise.toString() };
   });
 
+  mountPredictions(final, { chain: pub });
   return final;
+}
+
+// ------------------------------------------------------------------ prediction booths (step 4)
+const PRED_ABI = parseAbi(["function verified(address) view returns (bool)", "function setVerified(address[] players, bool isVerified)"]);
+const MARKETS_FILE = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "predictions", "markets.json");
+export const loadMarkets = (file = process.env.PREDICTIONS_FILE || MARKETS_FILE) => JSON.parse(readFileSync(file, "utf8"));
+
+function mountPredictions(final, { chain, markets = loadMarkets, ownerKey = process.env.PREDICTIONS_OWNER_KEY, rpc = process.env.PREDICTIONS_RPC || CHAIPAY.rpc, writer = null } = {}) {
+  const { HttpError, db, save } = final;
+  db.signals ||= {};
+  const contract = () => process.env.PREDICTIONS_CONTRACT || markets().contract;
+  const owner = /^0x[0-9a-fA-F]{64}$/.test(ownerKey || "") ? privateKeyToAccount(ownerKey) : null;
+  const wallet = writer || (owner && createWalletClient({ account: owner, chain: defineChain({ id: 1874, name: "Whitechain Sepolia", nativeCurrency: { name: "WBT", symbol: "WBT", decimals: 18 }, rpcUrls: { default: { http: [rpc] } } }), transport: http(rpc) }));
+  const read = writer ? chain : createPublicClient({ transport: http(rpc) });
+
+  final.use("GET", /^\/api\/predictions\/status$/, async (_, req) => {
+    const s = final.sessionOf(req);
+    const c = contract();
+    let onchain = false;
+    if (c && s?.human.wallet) onchain = await read.readContract({ address: c, abi: PRED_ABI, functionName: "verified", args: [s.human.wallet] }).catch(() => false);
+    return { contract: c || null, registration: !!wallet, human: final.publicHuman(s?.human) || null, verifiedOnChain: onchain, signal: s ? db.signals[s.human.playerId] ?? null : null };
+  });
+
+  /** The server tells the contract this wallet belongs to one World ID-verified human. */
+  final.use("POST", /^\/api\/predictions\/register$/, async (_, req) => {
+    const s = final.sessionOf(req);
+    if (!s) throw new HttpError(401, "not_verified", "Verify with World ID first.");
+    if (!s.human.wallet) throw new HttpError(400, "no_wallet", "Link a wallet first.");
+    const c = contract();
+    if (!c || !wallet) throw new HttpError(503, "predictions_not_deployed", "The prediction booths aren't open yet (contract not deployed or no owner key on the server).");
+    if (await read.readContract({ address: c, abi: PRED_ABI, functionName: "verified", args: [s.human.wallet] })) return { verifiedOnChain: true, already: true };
+    const hash = await wallet.writeContract({ address: c, abi: PRED_ABI, functionName: "setVerified", args: [[s.human.wallet], true] });
+    const r = await read.waitForTransactionReceipt({ hash, timeout: 60_000 });
+    if (r.status !== "success") throw new HttpError(502, "register_failed", "The registration transaction reverted.");
+    return { verifiedOnChain: true, txHash: hash };
+  });
+
+  /** "Back a problem statement": one signal per verified human. Not a bet, no rewards. */
+  final.use("POST", /^\/api\/predictions\/signal$/, async (body, req) => {
+    const s = final.sessionOf(req);
+    if (!s) throw new HttpError(401, "not_verified", "Verify with World ID first.");
+    const wall = markets().booths.find((b) => b.signal);
+    const i = Number(body?.option);
+    if (!Number.isInteger(i) || i < 0 || i >= wall.options.length) throw new HttpError(400, "bad_option", "Pick one of the problem statements.");
+    db.signals[s.human.playerId] = i;
+    save();
+    return tallies(wall);
+  });
+  final.use("GET", /^\/api\/predictions\/signals$/, async () => tallies(markets().booths.find((b) => b.signal)));
+  const tallies = (wall) => {
+    const counts = wall.options.map(() => 0);
+    for (const v of Object.values(db.signals)) if (counts[v] !== undefined) counts[v]++;
+    return { counts, total: counts.reduce((a, b) => a + b, 0) };
+  };
 }
 
 export const isAddr = isAddress;
