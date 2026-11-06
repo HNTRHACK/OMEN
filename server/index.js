@@ -94,7 +94,11 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
       ['POST', /^\/api\/mod\/logout$/, async (_, b, req) => auth.logout(req)],
       ['GET', /^\/api\/mod\/me$/, async (_, b, req) => ({ account: await modOnly(req) })],
     ] : []),
-    ["GET", /^\/api\/health$/, async () => ({ ok: true })],
+    ["GET", /^\/api\/health$/, async () => {
+      try { if (database) await database.pool.query({ text: 'SELECT 1', query_timeout: 2000 }); }
+      catch { throw new ApiError(503, 'unavailable', 'Database health check failed.'); }
+      return { ok: true };
+    }, { external: true }],
     ["GET", /^\/api\/config$/, async () => publicConfig()],
     ["GET", /^\/api\/rates$/, async () => usdtInr()],
     ["GET", /^\/api\/market\/([a-z]{2,5})$/, async ([sym]) => market.coin(sym)],
@@ -306,7 +310,13 @@ function readJson(req, max = 16_384) {
 const DIST = join(ROOT, "dist");
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".glb": "model/gltf-binary", ".wasm": "application/wasm", ".png": "image/png", ".svg": "image/svg+xml", ".json": "application/json" };
 async function serveStatic(path, res) {
-  const rel = normalize(decodeURIComponent(path)).replace(/^([/\\])+/, "");
+  let rel;
+  try {
+    rel = normalize(decodeURIComponent(path)).replace(/^([/\\])+/, "");
+  } catch {
+    res.writeHead(400, { "content-type": "text/plain" }).end("Malformed path.");
+    return;
+  }
   let file = join(DIST, rel || "index.html");
   if (!file.startsWith(DIST + sep) && file !== DIST) return res.writeHead(403).end();
   try {
@@ -431,7 +441,7 @@ export async function start() {
   } catch (e) { await app.close(); throw e; }
   const server = createServer(app);
   notifier.attach(server, app.community, app.database, app.worldIdentity);
-  server.listen(config.port, () => {
+  server.listen(config.port, '0.0.0.0', () => {
     logStatus(`on http://localhost:${config.port}`);
   });
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {

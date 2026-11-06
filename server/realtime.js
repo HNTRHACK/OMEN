@@ -188,6 +188,9 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
       const room = String(msg?.room || "").toLowerCase();
       if (!ROOM_RE.test(room)) return ack({ error: "Room codes are 3–24 letters, digits or dashes." });
       const token = typeof msg?.token === "string" && TOKEN_RE.test(msg.token) ? msg.token : null;
+      const resumeValue = typeof msg?.resume === "string" && ID_RE.test(msg.resume) ? msg.resume : null;
+      if (resumeValue && !token) return ack({ error: "Guest token required to resume this courier." });
+      if (token && resumeValue && resumeValue !== playerIdOf(token)) return ack({ error: "Resume ID does not match your guest token." });
       const request = { headers: { ...sock.handshake.headers, 'x-omen-token': token || '' } };
       const identity = worldIdentity ? await worldIdentity.resolveRequest(request) : null;
       const owned = identity?.accountId ? await worldIdentity.ownAvatar(request) : null;
@@ -196,11 +199,10 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
       const players = rooms.get(room);
       const look = owned ? owned.avatar.look : msg?.look ? cleanLook(msg.look) : lookFromOutfit(Math.abs(Math.trunc(Number(msg?.outfit) || 0)) % OUTFITS);
       const name = owned ? owned.avatar.displayName : cleanName(msg?.name);
-      // Identity: a guest token gives a stable id across refreshes and reconnects. (Old clients
-      // without one get a per-tab id they can resume with.)
-      const resume = !token && typeof msg?.resume === "string" && ID_RE.test(msg.resume) ? msg.resume : null;
-      if (resume && !identity?.accountId && await worldIdentity?.reservedAvatar(resume)) return ack({ error: 'Verified avatars require an authenticated session.' });
-      const id = identity?.avatarId || (token ? playerIdOf(token) : resume);
+      // Identity: a guest token gives a stable id across refreshes and reconnects. Public resume IDs
+      // are only accepted when they match the presented guest token; there is no tokenless fallback.
+      if (resumeValue && !identity?.accountId && await worldIdentity?.reservedAvatar(resumeValue)) return ack({ error: 'Verified avatars require an authenticated session.' });
+      const id = identity?.avatarId || (token ? playerIdOf(token) : null);
       const existing = id ? players.get(id) : null;
       if (existing?.authenticated && !token && !identity?.accountId) return ack({ error: 'Use your guest token to resume this courier.' });
       if (existing) {

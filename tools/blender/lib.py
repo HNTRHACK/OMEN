@@ -47,6 +47,14 @@ PALETTE = {
     "cloak": "#3D3550",
     "glow": "#FFC85A",
     "net_glow": "#6FE3D6",
+    # Mumbai (Final Block)
+    "taxi_yellow": "#F2C230",
+    "basalt": "#D8B47A",
+    "basalt_dark": "#B48E58",
+    "local_maroon": "#8E3B46",
+    "sea": "#4F8FB0",
+    "steel": "#8C96A0",
+    "black": "#26222A",
 }
 EMISSIVE = {"glow": 2.0, "net_glow": 2.5}
 

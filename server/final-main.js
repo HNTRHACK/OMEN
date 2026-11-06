@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, normalize, extname, sep, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import './env.js';
 import { createFinalBlock } from "./final-block.js";
 import { mountFinalRoutes } from "./final-routes.js";
 

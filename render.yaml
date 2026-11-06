@@ -1,42 +1,54 @@
-# Render blueprint (not deployed automatically: create it from the Render dashboard when ready).
+# Proposed NEW Render resources. Nothing is confirmed deployed.
+# Do not sync/create this Blueprint until the operator approves the resources and charges.
 # One instance only: rooms and sockets live in memory. PostgreSQL holds the economy and uploads.
+databases:
+  - name: omen-db
+    region: singapore
+    plan: 0.1c-256mb
+    diskSizeGB: 1
+    postgresMajorVersion: "16"
+    databaseName: omen
+    user: omen
+    ipAllowList: [] # private network only; no public database ingress
+
 services:
   - type: web
     name: omen
     runtime: docker
+    region: singapore
     plan: starter
     numInstances: 1
+    autoDeployTrigger: "off"
+    preDeployCommand: node server/manage.js migrate
     healthCheckPath: /api/health
     disk:
       name: omen-data
       mountPath: /data
       sizeGB: 1
     envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "8787"
+      - key: DATA_DIR
+        value: /data
+      - key: BTCINR_DEMO_INR_PER_BTC
+        value: "5734210.55" # explicit demo reference price, never live market pricing
+      - key: ALLOWED_ORIGIN
+        value: "" # same-origin frontend/API/cookie sessions; do not use a wildcard
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: omen-db
+          property: connectionString
       - key: WORLD_ID_ENVIRONMENT
         value: production
-      - key: WORLD_ID_CLIENT_ID
-        sync: false
-      - key: WORLD_ID_CLIENT_SECRET
-        sync: false
-      - key: WORLD_ID_REDIRECT_URI
-        sync: false
       - key: TRUST_PROXY
         value: "1"
-      - key: CHECKOUT_ADDRESS
-        sync: false
-      - key: RELAYER_PRIVATE_KEY # server-only, testnet-only key with a little WBT
-        sync: false
-      - key: MERCHANT_KEYS # e.g. maya-chai:<secret>,orin-relay:<secret>
-        sync: false
-      - key: WEBHOOKS
-        sync: false
-      - key: WEBHOOK_SECRET
-        sync: false
-      - key: ZG_API_KEY
-        sync: false
-      - key: ZG_MODEL
-        sync: false
-      - key: COINGECKO_API_KEY
-        sync: false
+      - key: ZG_MODE
+        value: "off"
+
+# Optional integrations remain supported by the application. Add their credentials
+# privately in the dashboard only when needed; none is required for guest judging:
+# WORLD_ID_CLIENT_ID, WORLD_ID_CLIENT_SECRET, WORLD_ID_REDIRECT_URI,
+# CHECKOUT_ADDRESS, RELAYER_PRIVATE_KEY, MERCHANT_KEYS, WEBHOOKS, WEBHOOK_SECRET,
+# ZG_API_KEY, ZG_MODEL, COINGECKO_API_KEY, VITE_ARKIV_ACCESS_KEY.

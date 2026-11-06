@@ -1,0 +1,8 @@
+{
+  "guestLobbyOverWss": true,
+  "adsAppearLiveOverWss": true,
+  "adsTakedownLiveOverWss": true,
+  "httpsHealth": true,
+  "wssFrames": 21,
+  "secureHttpOnlyModeratorCookie": true
+}

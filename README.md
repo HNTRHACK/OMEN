@@ -209,7 +209,8 @@ yet; run `E2E_GPU=1 node e2e/fps.mjs` on one. When the average stays under 40 fp
 
 ## Configure and deploy
 
-Copy `.env.example` to `.env`. Every key below is optional; without them the game runs on DEMO credits.
+Copy `.env.example` to `.env`. `DATABASE_URL` and applied PostgreSQL migrations are required,
+including DEMO mode. The integration keys below are optional.
 
 | Setting | For |
 |---|---|
@@ -231,10 +232,13 @@ forge script script/Deploy.s.sol --rpc-url whitechain_sepolia --private-key $DEP
 
 ### Deploy
 
-`Dockerfile` runs everything in one process; `render.yaml` describes a single Render instance with a
-disk for payment history (rooms live in memory, so run one instance). Hosts terminate TLS, so
-browsers get `https://` and `wss://`. Set `TRUST_PROXY=1` behind a proxy. The Dockerfile hasn't been
-built yet (Docker wasn't running on the dev machine).
+Follow [the production deployment runbook](docs/PRODUCTION-DEPLOYMENT.md) for exact manual
+commands, environment names, migration/legacy import, verification and rollback steps.
+The existing Docker/Render setup runs frontend, API and Socket.IO in one instance and one
+origin. PostgreSQL persists receipts, accounts, ads and uploaded image bytes; `/data` is
+retained for legacy import/backup. Render terminates HTTPS/WSS. Auto-deploys are disabled in
+the blueprint, and its pre-deploy command applies additive migrations. No service is
+created, deployed or charged merely by editing these files.
 
 ### Verify on a local fork
 

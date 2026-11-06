@@ -78,21 +78,31 @@ test("bad room codes are refused", async () => {
 });
 
 test("reconnecting within the grace window resumes the same player (no duplicate, no leave)", async () => {
+  const token = tok();
   const a = await player("resume-room", "Watcher");
-  const b = await player("resume-room", "Flaky");
+  const b = await player("resume-room", "Flaky", { token });
   let left = 0;
   let joinedAgain = 0;
   a.s.on("left", () => left++);
   a.s.on("joined", () => joinedAgain++);
   b.s.close();
   await pause(200);
-  const b2 = await player("resume-room", "Flaky", { resume: b.ack.id });
-  assert.equal(b2.ack.id, b.ack.id, "same player id");
+  const b2 = await player("resume-room", "Flaky", { resume: b.ack.id, token });
+  assert.equal(b2.ack.id, b.ack.id, "same token resumes the same player");
   await pause(200);
   assert.equal(left, 0);
   assert.equal(joinedAgain, 0, "no duplicate join for a resume");
   a.s.close();
   b2.s.close();
+});
+
+test("public resume ids are rejected without a guest token", async () => {
+  const victim = await player("resume-security", "Victim", { token: tok() });
+  const attacker = await player("resume-security", "Attacker", { resume: victim.ack.id });
+  assert.equal(attacker.ack.id, undefined, "tokenless resume IDs are not accepted");
+  assert.match(attacker.ack.error, /Guest token required/i);
+  victim.s.close();
+  attacker.s.close();
 });
 
 test("merchant channel needs that merchant's key and only gets its own payments", async () => {

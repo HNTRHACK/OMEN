@@ -8,23 +8,38 @@
 import { randomBytes, createHash } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { verifyMessage, getAddress, isAddress } from "viem";
+import { ROOT } from './env.js';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const env = process.env;
-loadDotEnv();
 
 export const ACTION = "play-omen";
 const VERIFY_URL = (rpId) => `https://developer.world.org/api/v4/verify/${rpId}`;
 const SESSION_DAYS = 7;
 
 export function finalConfig(e = env) {
-  const environment = e.WORLD_ENVIRONMENT === "staging" ? "staging" : "production";
+  const value = (key) => (e[key] || '').trim();
+  const environment = value('WORLD_ENVIRONMENT') || 'production';
+  const appId = value('VITE_WORLD_APP_ID') || value('WORLD_APP_ID');
+  const rpId = value('WORLD_RP_ID');
+  const signingKey = value('WORLD_RP_SIGNING_KEY');
+  const issues = [];
+  const check = (name, input, valid, message) => {
+    if (!input) issues.push({ variable: name, reason: 'missing', message: `${name} is missing.` });
+    else if (!valid) issues.push({ variable: name, reason: 'invalid', message });
+  };
+  check('VITE_WORLD_APP_ID', appId, /^app_[A-Za-z0-9_]+$/.test(appId), 'World app ID must start with app_.');
+  check('WORLD_RP_ID', rpId, /^rp_[A-Za-z0-9_]+$/.test(rpId), 'World RP ID must start with rp_.');
+  const hex = signingKey.replace(/^0x/, '');
+  const validKey = /^[0-9a-fA-F]{64}$/.test(hex) && BigInt(`0x${hex}`) > 0n &&
+    BigInt(`0x${hex}`) < 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+  check('WORLD_RP_SIGNING_KEY', signingKey, validKey, 'WORLD_RP_SIGNING_KEY must be a 32-byte private signing key (64 hex characters, optionally prefixed with 0x), not a public address.');
+  if (!['staging', 'production'].includes(environment)) issues.push({ variable: 'WORLD_ENVIRONMENT', reason: 'invalid', message: 'WORLD_ENVIRONMENT must be staging or production.' });
   return {
-    appId: /^app_[A-Za-z0-9_]+$/.test(e.VITE_WORLD_APP_ID || e.WORLD_APP_ID || "") ? e.VITE_WORLD_APP_ID || e.WORLD_APP_ID : "",
-    rpId: /^rp_[A-Za-z0-9_]+$/.test(e.WORLD_RP_ID || "") ? e.WORLD_RP_ID : "",
-    signingKey: /^(0x)?[0-9a-fA-F]{64}$/.test(e.WORLD_RP_SIGNING_KEY || "") ? e.WORLD_RP_SIGNING_KEY : "",
+    appId: /^app_[A-Za-z0-9_]+$/.test(appId) ? appId : '',
+    rpId: /^rp_[A-Za-z0-9_]+$/.test(rpId) ? rpId : '',
+    signingKey: validKey ? signingKey : '',
+    issues,
     environment,
     allowGuest: e.OMEN_ALLOW_UNVERIFIED_GUEST === "1",
     chaipayUrl: (e.CHAIPAY_RELAYER_URL || "http://localhost:3001").replace(/\/$/, ""),
@@ -61,7 +76,7 @@ const sha = (s) => createHash("sha256").update(s).digest("hex");
 export function createFinalBlock({ config = finalConfig(), store = fileStore(config.dataFile), fetchImpl = fetch, signRequestImpl = null, now = Date.now } = {}) {
   const { db, save } = store;
 
-  const configured = () => !!(config.appId && config.rpId && config.signingKey);
+  const configured = () => !!(config.appId && config.rpId && config.signingKey && !config.issues?.length);
   const cookieOf = (req) => /(?:^|;\s*)omen_human=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie || "")?.[1] || null;
   const sessionOf = (req) => {
     const t = cookieOf(req);
@@ -153,7 +168,7 @@ export function createFinalBlock({ config = finalConfig(), store = fileStore(con
   }
 
   const routes = {
-    "GET /api/world/config": async () => ({ configured: configured(), appId: config.appId || null, action: ACTION, environment: config.environment, allowGuest: config.allowGuest }),
+    "GET /api/world/config": async () => ({ configured: configured(), appId: config.appId || null, action: ACTION, environment: config.environment, allowGuest: config.allowGuest, issues: config.issues || [] }),
     "POST /api/world/rp-context": rpContext,
     "POST /api/verify": verify,
     "GET /api/human": async (_, req) => ({ human: publicHuman(sessionOf(req)?.human) || null }),
@@ -232,13 +247,4 @@ function readJson(req, max = 64 * 1024) {
     });
     req.on("error", reject);
   });
-}
-
-function loadDotEnv() {
-  const f = join(ROOT, ".env");
-  if (!existsSync(f)) return;
-  for (const line of readFileSync(f, "utf8").split(/\r?\n/)) {
-    const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line);
-    if (m && !line.trimStart().startsWith("#") && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
-  }
 }

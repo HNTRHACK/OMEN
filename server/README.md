@@ -173,7 +173,7 @@ account/history reads. Delivery semantics and limits are in the B2 contract.
 
 | Variable | Required/default |
 | --- | --- |
-| `DATABASE_URL` | Required. Dedicated PostgreSQL URL. Hosted connections should use `sslmode=verify-full` and trusted CA configuration; do not disable certificate verification. |
+| `DATABASE_URL` | Required. Dedicated PostgreSQL URL. External connections should use `sslmode=verify-full` and trusted CA configuration. Render's private-network connection is documented in the production runbook; do not disable certificate verification in application code. |
 | `DATA_DIR` | Legacy import source; defaults to repository `server/data`. Prefer an absolute path. No new JSON/upload files are written here. |
 | `NODE_ENV` | Set `production` behind HTTPS; adds Secure to session/media cookies. |
 | `PORT` | `8787` |
@@ -187,10 +187,12 @@ account/history reads. Delivery semantics and limits are in the B2 contract.
 | `TEST_DATABASE_URL` | Required only for backend integration tests. Use a disposable database with CREATE SCHEMA permission. Never point it at production. |
 | `BTCINR_DEMO_INR_PER_BTC` | Optional explicit BTC/INR demo reference rate, e.g. `5734210.55`; source is labelled `configured-demo`. Empty uses CoinGecko with no automatic fallback. |
 
-Docker installs the separate locked server dependencies. The Render blueprint retains one instance
-and requires an operator-supplied `DATABASE_URL`; provision PostgreSQL and run migrate/import before
-starting the service. Keep credentials in the hosting secret manager. The existing disk is useful
-for legacy import/backup retention but is not the new operational store. This change does not deploy.
+Docker installs the separate locked server dependencies. The proposed Render blueprint defines
+one web instance and one same-region managed PostgreSQL 16 database, linked through DATABASE_URL.
+No hosted resource is confirmed created. Run migrations before serving; import only if deliberately
+moving legacy records. Keep credentials in the hosting secret manager. The proposed web disk is for
+legacy import/backup retention, not the operational store. See the production runbook before
+approving provisioning or deployment; never create a duplicate service/database.
 
 ## Verification
 

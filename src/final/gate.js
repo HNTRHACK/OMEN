@@ -23,10 +23,11 @@ export function humanGate() {
   const el = $("#gate");
   return new Promise(async (done) => {
     let cfg = { configured: false };
+    let configError = '';
     try {
       [cfg] = await Promise.all([api("/api/world/config"), fetchHuman()]);
     } catch {
-      /* offline server: shown below */
+      configError = 'Could not load World ID configuration from the server. Check the development server and try again.';
     }
     el.hidden = false;
     const finish = () => {
@@ -41,7 +42,7 @@ export function humanGate() {
     const showVerify = (err = "") => {
       step(`
         <p class="gate-lede">OMEN is one human, one courier. Prove you're a unique person with World ID — no name, no email, nothing personal leaves your phone.</p>
-        ${cfg.configured ? "" : `<p class="gate-err">World ID isn't configured on this server yet (needs <code>VITE_WORLD_APP_ID</code>, <code>WORLD_RP_ID</code>, <code>WORLD_RP_SIGNING_KEY</code>).</p>`}
+        ${cfg.configured ? "" : `<p class="gate-err">${esc(configError || cfg.issues?.map((issue) => issue.message).join(' ') || "World ID isn't configured on this server yet (VITE_WORLD_APP_ID, WORLD_RP_ID, WORLD_RP_SIGNING_KEY).")}</p>`}
         ${cfg.environment === "staging" ? `<p class="gate-note">STAGING: verify with the <a href="https://simulator.worldcoin.org/" target="_blank" rel="noopener">World ID simulator</a>. Not a real World ID.</p>` : ""}
         <div class="gate-levels" role="radiogroup" aria-label="Verification level">
           <label><input type="radio" name="lvl" value="orb" checked> <b>Orb</b> <small>strongest: verified in person</small></label>
@@ -49,7 +50,7 @@ export function humanGate() {
         </div>
         <button id="gate-go" class="btn" type="button" ${cfg.configured ? "" : "disabled"}>Verify with World ID</button>
         ${err ? `<p class="gate-err">${esc(err)}</p>` : ""}
-        ${!cfg.configured && cfg.allowGuest ? `<button id="gate-guest" class="linkish" type="button">Continue UNVERIFIED (dev server only — no predictions)</button>` : ""}`);
+        ${cfg.allowGuest ? `<button id="gate-guest" class="linkish" type="button">Continue UNVERIFIED (dev server only — no predictions)</button>` : ""}`);
       $("#gate-go")?.addEventListener("click", () => verify($("input[name=lvl]:checked").value));
       $("#gate-guest")?.addEventListener("click", () => ((human.guest = true), finish()));
     };

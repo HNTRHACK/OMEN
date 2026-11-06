@@ -14,5 +14,7 @@ contracts/lib
 docs
 tools
 e2e
+artifacts
+references
 test
 .git

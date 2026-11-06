@@ -30,6 +30,8 @@ import { createPerf } from "./perf.js";
 import { humanGate } from "./final/gate.js";
 import { tutorialPayment } from "./final/tutorial-pay.js";
 import { showChaiReceipt } from "./final/receipt.js";
+import { createMumbai } from "./final/mumbai.js";
+import { createBooths, loadMarkets, boothName } from "./final/booths.js";
 import "./style.css";
 
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -203,7 +205,13 @@ function setStage(s) {
   state.stage = s;
   ui.objective(STAGES[s]);
   save();
+  if (s === "echo") mumbai.startCountdown(fallSeconds()); // Final Block: the tutorial is done
 }
+// ?mumbai=<seconds> shortens the 3-minute countdown (demo rehearsals and tests)
+const fallSeconds = () => {
+  const q = Number(new URLSearchParams(location.search).get("mumbai"));
+  return Number.isFinite(q) && q > 0 ? q : undefined;
+};
 function give(id) {
   if (!state.items.includes(id)) state.items.push(id);
   ui.setItems(state.items.map((i) => ITEMS[i]));
@@ -935,6 +943,7 @@ async function beginPlay(fresh) {
   mover.enabled = true;
   save();
   pill.hidden = false; // solo players need the Invite button too
+  if (["echo", "done"].includes(state.stage)) mumbai.startCountdown(fallSeconds());
   // Everyone shares the public world unless they made a private room with friends.
   joinRoom(courier.room || PUBLIC_ROOM);
 }
@@ -1442,6 +1451,8 @@ function frame() {
     titleCam(titleT);
   } else if (mode === "creator") {
     creatorCam(dt);
+  } else if (mode === "fall") {
+    mumbai.update(dt);
   } else if (mode === "swoop") {
     swoop.t = Math.min(1, swoop.t + dt / 2.8);
     const e = 1 - Math.pow(1 - swoop.t, 3);
@@ -1479,7 +1490,7 @@ function frame() {
   birds.update(dt, t);
 
   // the objective marker bobs above whoever you're looking for
-  const target = mode === "play" ? objectiveTarget() : null;
+  const target = mode === "play" && !mumbai.active ? objectiveTarget() : null;
   marker.visible = !!target && !busy;
   if (target) {
     const up = target.clone().normalize();
@@ -1516,6 +1527,25 @@ function frame() {
   ink.render(scene, camera, t, [W.sky]);
   requestAnimationFrame(frame);
 }
+
+// ------------------------------------------------------------------ Final Block: Mumbai + booths
+const booths = createBooths({
+  onClose: () => {
+    busy = false;
+    mover.enabled = true;
+  },
+});
+loadMarkets().catch(() => {});
+const mumbai = createMumbai({
+  scene, W, kai, mover, rig, camera, talkables, ui, boothName,
+  setMode: (m) => (mode = m),
+  onBooth: async (id) => {
+    busy = true;
+    mover.enabled = false;
+    await booths.open(id);
+  },
+  onArrive: () => ui.objective("Visit the prediction booths · testnet only"),
+});
 
 requestAnimationFrame(frame);
 ui.hideLoading();
@@ -1562,6 +1592,8 @@ window.__omen = {
   get mode() {
     return mode;
   },
+  mumbai,
+  booths,
   stand(worldPos, faceWorld) {
     mover.dir.copy(worldPos).normalize();
     mover.fwd.copy(tangentToward(mover.dir, faceWorld.clone().normalize()));

@@ -19,7 +19,18 @@ await page.waitForSelector("#gate:not([hidden]) #gate-go", { timeout: 120000 });
 const text = await page.textContent("#gate");
 if (shots) await page.screenshot({ path: `${shots}/1-gate.png` });
 ok("1 the first screen is 'Only humans play OMEN', before the title", /Only humans play OMEN/.test(text) && (await page.isHidden("#title")));
-ok("2 without World ID credentials the verify button is disabled and says why; nothing says VERIFIED", (await page.isDisabled("#gate-go")) && /isn't configured/.test(text) && !/VERIFIED HUMAN/.test(text));
+const cfg = await page.evaluate(() => fetch("/api/world/config").then((r) => r.json()));
+if (cfg.configured) {
+  // real World ID: the server signs the request, IDKit opens a session with World's bridge
+  await page.click("#gate-go");
+  await page.waitForSelector(".gate-qr canvas", { timeout: 30000 });
+  const link = await page.getAttribute("#gate-body a.btn", "href");
+  if (shots) await page.screenshot({ path: `${shots}/1b-gate-worldid-qr.png` });
+  ok("2 configured: Verify asks the server to sign, then shows a real World ID QR + World App link; nothing says VERIFIED", /^https:\/\//.test(link || "") && !/VERIFIED HUMAN/.test(await page.textContent("#gate")));
+  console.log("connector host:", new URL(link).host);
+  await page.click("#gate-cancel");
+  await page.waitForSelector("#gate-go", { timeout: 10000 });
+} else ok("2 without World ID credentials the verify button is disabled and says why; nothing says VERIFIED", (await page.isDisabled("#gate-go")) && /configured|missing/.test(text) && !/VERIFIED HUMAN/.test(text));
 ok("3 the testnet label is on the screen", /Testnet tokens only\. No real money\. Just for fun\./.test(text));
 const me = await page.evaluate(() => fetch("/api/human").then((r) => r.json()));
 ok("4 the server has no human for this browser", me.human === null);

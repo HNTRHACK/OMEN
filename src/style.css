@@ -285,3 +285,35 @@ button { font: inherit; color: inherit; }
 #chai-receipt a { color: var(--teal); font-weight: 700; }
 #chai-receipt small { color: var(--muted); font-size: 12px; }
 #chai-receipt button { position: absolute; top: 4px; right: 8px; border: 0; background: none; font-size: 20px; cursor: pointer; }
+
+/* ---------- Final Block: Mumbai countdown, fall, booths ---------- */
+#mumbai-countdown { position: fixed; z-index: 12; left: 50%; top: 14px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; padding: 6px 8px 6px 16px; background: var(--paper); border: 3px solid var(--ink); border-radius: 999px; box-shadow: 4px 4px 0 var(--ink); font-family: var(--display); font-weight: 800; font-size: 17px; }
+#mumbai-countdown[hidden] { display: none; }
+#mumbai-countdown b { font-variant-numeric: tabular-nums; color: #a3402f; }
+#fall-veil { position: fixed; inset: 0; z-index: 25; pointer-events: none; display: grid; place-items: center; background: #fbf3e4; opacity: 0; }
+#fall-veil:not(.on) { display: none; }
+#fall-veil p { font-family: var(--display); font-weight: 800; font-size: clamp(28px, 6vw, 56px); color: var(--ink); }
+#booth { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px; background: rgba(43, 34, 48, 0.45); }
+#booth[hidden] { display: none; }
+.booth-card { width: min(560px, 100%); max-height: calc(100dvh - 32px); overflow: auto; background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 8px 9px 0 var(--ink); padding: 14px 18px; display: grid; gap: 8px; }
+.booth-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 2.5px dashed var(--ink); padding-bottom: 4px; }
+.booth-head h2 { margin: 0; font-family: var(--display); font-size: 26px; }
+.booth-x { border: 0; background: none; font-size: 28px; cursor: pointer; line-height: 1; }
+.booth-label { margin: 0; justify-self: start; font-family: var(--display); font-weight: 800; font-size: 13px; color: #8a5a1c; background: #fff2cc; border: 2px solid var(--ink); border-radius: 999px; padding: 2px 12px; }
+.booth-blurb, .booth-bal, .booth-note { margin: 0; font-size: 16px; }
+.booth-note { color: #8a5a1c; font-weight: 700; }
+.booth-markets { display: grid; gap: 10px; }
+.booth-market { border: 2.5px solid var(--ink); border-radius: 14px; padding: 8px 12px; background: var(--paper-2); display: grid; gap: 6px; }
+.booth-market h3 { margin: 0; font-family: var(--display); font-size: 17px; }
+.booth-market ul, .booth-signal { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.booth-market li, .booth-signal li { display: grid; grid-template-columns: minmax(0, 1fr) 90px auto; gap: 8px; align-items: center; font-size: 15px; }
+.booth-signal li { grid-template-columns: minmax(0, 1fr) 70px 28px auto; }
+.booth-market li.won label { font-weight: 800; color: #2f7a4b; }
+.booth-signal li.mine span:first-child { font-weight: 800; }
+.bar { height: 10px; border: 2px solid var(--ink); border-radius: 999px; background: #fff; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--teal); }
+.booth-stake { display: flex; gap: 8px; }
+.booth-stake input { flex: 1; min-width: 0; font: inherit; font-size: 17px; padding: 4px 10px; border: 2.5px solid var(--ink); border-radius: 10px; }
+.booth-card .err { color: #a3402f; font-weight: 700; margin: 0; }
+.booth-card .ok { color: #2f7a4b; font-weight: 700; margin: 0; }
+.booth-card .fine { margin: 0; font-size: 15px; color: var(--muted); }

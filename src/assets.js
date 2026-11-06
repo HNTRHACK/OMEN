@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 
 // Loads the Blender-made GLBs and swaps their materials for two-tone toon shading.
 
@@ -53,9 +54,23 @@ export async function loadAll(names, onProgress) {
         o.receiveShadow = true;
       });
       scenes.set(n, gltf.scene);
+      clipsByName.set(n, gltf.animations || []);
       onProgress?.(++done / names.length);
     }),
   );
+}
+
+const clipsByName = new Map();
+/** The animation clips that came with a model. */
+export const clips = (name) => clipsByName.get(name) || [];
+
+/** A fresh copy of a rigged model with its own skeleton (a plain clone would share bones). */
+export function skinnedModel(name, { uniqueMaterials = false } = {}) {
+  const src = scenes.get(name);
+  if (!src) throw new Error(`model ${name} not loaded`);
+  const o = cloneSkinned(src);
+  if (uniqueMaterials) o.traverse((m) => m.isMesh && (m.material = Array.isArray(m.material) ? m.material.map((x) => x.clone()) : m.material.clone()));
+  return o;
 }
 
 /** A fresh copy of a model (materials are shared unless `uniqueMaterials`). */

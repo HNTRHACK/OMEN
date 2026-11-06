@@ -1,17 +1,6 @@
-import { readFileSync, existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-
-export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-
-// Minimal .env loader (no dependency); real environment variables win.
-const envFile = join(ROOT, ".env");
-if (existsSync(envFile)) {
-  for (const line of readFileSync(envFile, "utf8").split(/\r?\n/)) {
-    const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line);
-    if (m && !line.trimStart().startsWith("#") && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
-  }
-}
+import { join } from "node:path";
+import { ROOT } from './env.js';
+export { ROOT } from './env.js';
 
 const e = process.env;
 const addr = (v) => (/^0x[0-9a-fA-F]{40}$/.test(v || "") ? v : null);
