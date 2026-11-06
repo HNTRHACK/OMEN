@@ -320,6 +320,7 @@ async function useRelay() {
 }
 
 async function talkEcho() {
+  const completesChapter = state.stage === "echo";
   await converse(echo, async () => {
     if (state.stage !== "echo") {
       await line("ECHO", echo, "...");
@@ -330,6 +331,7 @@ async function talkEcho() {
     await line("ECHO", echo, "You noticed. Now they'll notice you.");
     await line("ECHO", echo, "Keep your satchel close, KAI. This was only the first block.");
   });
+  if (!completesChapter) return;
   particles.burst(echo.local(0, 1.2, 0), "spark", 50, 3);
   audio.zap();
   echo.group.visible = false;
