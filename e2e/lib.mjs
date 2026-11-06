@@ -12,7 +12,7 @@ export async function launch() {
 }
 
 /** Open the game, start fresh, skip the intro lines. Returns { page, logs, ctx }. */
-export async function enter(browser, url = BASE, { name, outfit, viewport = { width: 1280, height: 800 } } = {}) {
+export async function enter(browser, url = BASE, { name, outfit, look, viewport = { width: 1280, height: 800 } } = {}) {
   const ctx = await browser.newContext({ viewport });
   const page = await ctx.newPage();
   const logs = [];
@@ -26,9 +26,17 @@ export async function enter(browser, url = BASE, { name, outfit, viewport = { wi
     else console.log("warning, third-party " + line);
   });
   await page.goto(url);
-  await page.waitForSelector("#start:not([hidden])", { timeout: 120000 });
-  if (name && (await page.$("#mp-name"))) await page.fill("#mp-name", name);
-  if (outfit != null) await page.click(`.outfit[data-i="${outfit}"]`);
+  // landing → avatar creator → play
+  await page.waitForSelector("#join:not([hidden])", { timeout: 120000 });
+  await page.click("#join");
+  await page.waitForSelector("#creator:not([hidden]) #mp-name");
+  if (name) await page.fill("#mp-name", name);
+  const want = { ...(look || {}), ...(outfit != null ? { jacket: outfit } : {}) };
+  for (const [k, i] of Object.entries(want)) {
+    const tab = { skin: "look", hair: "look", hairStyle: "look", body: "look", jacket: "outfit", pants: "outfit", scarf: "outfit", hat: "outfit", hatColor: "outfit", accessory: "extras", pet: "extras" }[k];
+    await page.click(`.cr-tabs [data-tab="${tab}"]`);
+    await page.click(`[data-k="${k}"][data-i="${i}"]`);
+  }
   await page.click("#start");
   await page.waitForFunction(() => window.__omen?.mode === "play", null, { timeout: 60000 });
   for (let i = 0; i < 8 && (await page.isVisible("#dialogue")); i++) {

@@ -27,20 +27,39 @@
     <div class="load-track"><div id="load-bar"></div></div>
   </div>
 
-  <!-- Title -->
+  <!-- Landing -->
   <section id="title" hidden aria-label="OMEN: The Last Block">
-    <h1 class="logo"><span>OMEN</span><small>the last block</small></h1>
-    <form class="courier-card" id="courier" onsubmit="return false" aria-label="Your courier">
-      <label class="cc-name">Courier name <input id="mp-name" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="KAI"></label>
-      <div class="outfits" role="radiogroup" aria-label="Outfit"></div>
+    <div class="hero">
+      <h1 class="logo"><span>OMEN</span><small>the last block</small></h1>
+      <p class="tagline">A tiny planet where the chai stall takes stablecoins. Walk it with friends, open a shop, trade, and talk in the plaza.</p>
+      <div class="title-actions">
+        <button id="continue" class="btn" type="button" hidden>Continue</button>
+        <button id="join" class="btn" type="button">Join World</button>
+        <button id="friends" class="btn ghost" type="button">Play with friends</button>
+      </div>
       <p id="mp-room" class="cc-room" hidden>Joining room <b></b> with friends</p>
-    </form>
-    <div class="title-actions">
-      <button id="continue" class="btn" type="button" hidden>Continue</button>
-      <button id="start" class="btn" type="button">Start</button>
-      <button id="friends" class="btn ghost" type="button">Play with friends</button>
+      <p class="title-note">No wallet or sign-up needed to explore. Payments use Whitechain <b>testnet</b> USDT or <b>DEMO</b> credits; rupee amounts are quoted equivalents only.</p>
     </div>
-    <p class="title-note">A small story game. The story's blocks are simulated. Payments use Whitechain <b>testnet</b> USDT or <b>DEMO</b> credits; rupee payouts are <b>simulated</b>.</p>
+  </section>
+
+  <!-- Avatar creator: the live preview is your courier, in the world, behind this card -->
+  <section id="creator" hidden aria-labelledby="cr-h">
+    <form class="creator" id="courier" onsubmit="return false">
+      <header class="cr-head"><h2 id="cr-h">Your courier</h2><button id="cr-random" class="btn small ghost" type="button" title="Surprise me">Shuffle</button></header>
+      <label class="cc-name">Name <input id="mp-name" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="KAI"></label>
+      <div class="cr-tabs" role="tablist">
+        <button type="button" role="tab" data-tab="look" aria-selected="true">Look</button>
+        <button type="button" role="tab" data-tab="outfit" aria-selected="false">Outfit</button>
+        <button type="button" role="tab" data-tab="extras" aria-selected="false">Extras &amp; pet</button>
+      </div>
+      <div class="cr-panel" id="cr-panel" role="tabpanel"></div>
+      <p class="cr-hint">Drag anywhere in the world to turn your courier around.</p>
+      <div class="title-actions">
+        <button id="start" class="btn" type="button">Play as Guest</button>
+        <button id="wallet-play" class="btn ghost" type="button">Connect Wallet</button>
+      </div>
+      <p class="cr-foot"><button id="cr-back" class="linkish" type="button">← Back</button><label id="cr-over-wrap" hidden><input type="checkbox" id="cr-over"> start the story over</label></p>
+    </form>
   </section>
 
   <!-- HUD -->

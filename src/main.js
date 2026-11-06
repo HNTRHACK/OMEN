@@ -4,7 +4,9 @@ import { loadAll } from "./assets.js";
 import { buildWorld } from "./world.js";
 import { mapDir, tangentToward } from "./planet.js";
 import { SPOTS } from "./layout.js";
-import { Character, OUTFITS } from "./character.js";
+import { Character } from "./character.js";
+import { applyLook, syncPet } from "./avatar.js";
+import { LOOK_OPTIONS, DEFAULT_LOOK, cleanLook, lookFromOutfit, randomLook } from "../shared/look.js";
 import { createNet, roomFromUrl, newRoomCode, inviteUrl } from "./net.js";
 import { Collectibles } from "./collectibles.js";
 import { createCoinCard } from "./coincard.js";
@@ -642,7 +644,7 @@ async function act() {
   if (scanAfter) startScan(scanAfter);
   scanAfter = null;
 }
-bindInput(input, { onAct: act, onOrbit: (dx, dy) => rig.orbit(dx, dy) });
+bindInput(input, { onAct: act, onOrbit: (dx, dy) => (mode === "creator" ? (creatorYaw -= dx * 1.6) : rig.orbit(dx, dy)) });
 
 // A small bobbing envelope over the current objective (subtle, not a beacon)
 const marker = new Envelope(scene).mesh;
@@ -679,9 +681,27 @@ function titleCam(t) {
   camera.lookAt(0, 6, 0);
 }
 
+/** Avatar creator: a turntable around the courier, framed beside (wide) or above (narrow) the card. */
+const creatorLook = new THREE.Vector3();
+function creatorCam(dt) {
+  creatorYaw += dt * 0.22;
+  const p = kai.group.position;
+  const up = p.clone().normalize();
+  const f = mover.fwd.clone().applyAxisAngle(up, creatorYaw);
+  const wide = innerWidth > 760;
+  const pos = p.clone().addScaledVector(up, wide ? 1.5 : 2.0).addScaledVector(f, wide ? 4.1 : 4.8);
+  const right = new THREE.Vector3().crossVectors(up, f).normalize(); // camera's screen-right, looking back at KAI
+  const look = p.clone().addScaledVector(up, wide ? 0.9 : 0.35).addScaledVector(right, wide ? 1.25 : 0);
+  const k = 1 - Math.exp(-dt * 3.5);
+  camera.position.lerp(pos, k);
+  camera.up.lerp(up, k).normalize();
+  creatorLook.lerp(look, k);
+  camera.lookAt(creatorLook);
+}
+
 function startGame(fresh) {
   audio.start();
-  kai.setOutfit(courier.outfit);
+
   if (fresh) {
     try {
       localStorage.removeItem("omen.save");
@@ -705,9 +725,10 @@ function startGame(fresh) {
   ui.setItems(state.items.map((i) => ITEMS[i]));
   rig.fwd.copy(mover.fwd);
   const to = rig.desired(mover);
+  const fromLook = mode === "creator" ? creatorLook.clone() : new THREE.Vector3(0, 6, 0);
   if (reduceMotion) return beginPlay(fresh);
   mode = "swoop";
-  swoop = { t: 0, from: { pos: camera.position.clone(), up: camera.up.clone(), look: new THREE.Vector3(0, 6, 0) }, to, fresh };
+  swoop = { t: 0, from: { pos: camera.position.clone(), up: camera.up.clone(), look: fromLook }, to, fresh };
 }
 
 async function beginPlay(fresh) {
@@ -734,9 +755,12 @@ async function beginPlay(fresh) {
 
 // ------------------------------------------------------------------ multiplayer
 
-const courier = { name: "", outfit: 0, room: roomFromUrl() };
+const courier = { name: "", look: { ...DEFAULT_LOOK }, room: roomFromUrl() };
+const kaiPet = {}; // holds KAI's pet (see avatar.js syncPet)
 try {
-  Object.assign(courier, JSON.parse(localStorage.getItem("omen.courier") || "{}"), { room: roomFromUrl() });
+  const saved = JSON.parse(localStorage.getItem("omen.courier") || "{}");
+  courier.name = String(saved.name || "").slice(0, 16);
+  courier.look = cleanLook(saved.look || lookFromOutfit(saved.outfit || 0)); // older saves only had an outfit
 } catch {
   /* ignore */
 }
@@ -782,55 +806,128 @@ const net = createNet({
 });
 function joinRoom(room) {
   if (coins.seed !== room) placeCoins(room);
-  net.join({ room, name: courier.name || "Courier", outfit: courier.outfit });
+  net.join({ room, name: courier.name || "Courier", look: courier.look });
 }
 
-// title screen: name, outfit, room
+// ------------------------------------------------------------------ landing + avatar creator
+
+const CREATOR_TABS = {
+  look: [["skin", "Skin", "color"], ["hair", "Hair colour", "color"], ["hairStyle", "Hair", "chip"], ["body", "Build", "chip"]],
+  outfit: [["jacket", "Jacket", "color"], ["pants", "Trousers", "color"], ["scarf", "Scarf", "color"], ["hat", "Hat", "chip"], ["hatColor", "Hat colour", "color"]],
+  extras: [["accessory", "Accessory", "chip"], ["pet", "Pet", "chip"]],
+};
+const hex = (n) => "#" + n.toString(16).padStart(6, "0");
+let creatorTab = "look";
+let creatorYaw = 0;
+
+function rememberCourier() {
+  courier.name = document.getElementById("mp-name").value.trim().slice(0, 16);
+  try {
+    localStorage.setItem("omen.courier", JSON.stringify({ name: courier.name, look: courier.look }));
+  } catch {
+    /* ignore */
+  }
+}
+function setLook(look) {
+  courier.look = applyLook(kai, look);
+  syncPet(scene, kaiPet, courier.look.pet);
+  rememberCourier();
+  if (mode === "play") net.setLook(courier.look);
+}
+function renderCreator() {
+  const panel = document.getElementById("cr-panel");
+  panel.innerHTML = CREATOR_TABS[creatorTab]
+    .map(([key, label, kind]) => {
+      const opts = LOOK_OPTIONS[key]
+        .map((o, i) => {
+          const on = courier.look[key] === i;
+          return kind === "color"
+            ? `<button type="button" class="sw-btn" role="radio" aria-checked="${on}" aria-label="${o.name}" title="${o.name}" data-k="${key}" data-i="${i}" style="background:${hex(o.hex)}"></button>`
+            : `<button type="button" class="chip" role="radio" aria-checked="${on}" data-k="${key}" data-i="${i}">${o.name}</button>`;
+        })
+        .join("");
+      return `<div class="cr-row"><span class="cr-label" id="lbl-${key}">${label}</span><div class="cr-opts" role="radiogroup" aria-labelledby="lbl-${key}">${opts}</div></div>`;
+    })
+    .join("");
+  document.querySelectorAll(".cr-tabs [role=tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === creatorTab)));
+}
+function openCreator(friends) {
+  if (friends && !courier.room) {
+    courier.room = newRoomCode();
+    history.replaceState(null, "", `?room=${courier.room}`);
+  }
+  document.getElementById("title").hidden = true;
+  document.getElementById("creator").hidden = false;
+  document.getElementById("cr-over-wrap").hidden = !load();
+  if (mode !== "creator") creatorLook.set(0, 6, 0); // ease in from where the landing camera looks
+  mode = "creator";
+  creatorYaw = 0;
+  renderCreator();
+  document.getElementById("mp-name").focus();
+}
+function leaveCreatorAndPlay() {
+  rememberCourier();
+  const hasSave = !!load();
+  ui.hideTitle();
+  startGame(!hasSave || document.getElementById("cr-over").checked);
+}
 {
-  const nameEl = document.getElementById("mp-name");
-  nameEl.value = courier.name || "";
-  const box = document.querySelector("#courier .outfits");
-  box.innerHTML = OUTFITS.map((o, i) => `<button type="button" class="outfit" role="radio" aria-label="${o.name}" title="${o.name}" data-i="${i}" style="background:#${o.jacket.toString(16).padStart(6, "0")};--cap:#${o.cap.toString(16).padStart(6, "0")}"></button>`).join("");
-  const pick = (i) => {
-    courier.outfit = i;
-    box.querySelectorAll(".outfit").forEach((b) => b.setAttribute("aria-checked", String(Number(b.dataset.i) === i)));
-    kai.setOutfit(i);
+  document.getElementById("mp-name").value = courier.name || "";
+  document.getElementById("mp-name").addEventListener("input", rememberCourier);
+  document.getElementById("cr-panel").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-k]");
+    if (!b) return;
+    setLook({ ...courier.look, [b.dataset.k]: Number(b.dataset.i) });
+    kai.wave = 0.6;
+    renderCreator();
+    document.querySelector(`[data-k="${b.dataset.k}"][data-i="${b.dataset.i}"]`)?.focus();
+  });
+  document.getElementById("cr-panel").addEventListener("keydown", (e) => {
+    const b = e.target.closest("[data-k]");
+    if (!b || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
+    e.preventDefault();
+    const n = LOOK_OPTIONS[b.dataset.k].length;
+    const i = (Number(b.dataset.i) + (e.key === "ArrowRight" ? 1 : n - 1)) % n;
+    setLook({ ...courier.look, [b.dataset.k]: i });
+    renderCreator();
+    document.querySelector(`[data-k="${b.dataset.k}"][data-i="${i}"]`)?.focus();
+  });
+  document.querySelector(".cr-tabs").addEventListener("click", (e) => {
+    const t = e.target.closest("[data-tab]");
+    if (!t) return;
+    creatorTab = t.dataset.tab;
+    renderCreator();
+  });
+  document.getElementById("cr-random").onclick = () => {
+    setLook(randomLook());
+    kai.cheer = 0.8;
+    renderCreator();
   };
-  box.onclick = (e) => e.target.closest(".outfit") && pick(Number(e.target.closest(".outfit").dataset.i));
-  box.onkeydown = (e) => {
-    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-      e.preventDefault();
-      pick((courier.outfit + (e.key === "ArrowRight" ? 1 : OUTFITS.length - 1)) % OUTFITS.length);
-      box.querySelector(`[data-i="${courier.outfit}"]`).focus();
-    }
+  document.getElementById("cr-back").onclick = () => {
+    document.getElementById("creator").hidden = true;
+    document.getElementById("title").hidden = false;
+    mode = "title";
   };
-  pick(courier.outfit || 0);
-  const remember = () => {
-    courier.name = nameEl.value.trim().slice(0, 16);
+  document.getElementById("start").onclick = leaveCreatorAndPlay;
+  document.getElementById("wallet-play").onclick = async (e) => {
+    e.target.disabled = true;
     try {
-      localStorage.setItem("omen.courier", JSON.stringify({ name: courier.name, outfit: courier.outfit }));
-    } catch {
-      /* ignore */
+      await pay._wallet.connect();
+      ui.toast("Wallet connected: you can pay with testnet USDT in the world.");
+    } catch (err) {
+      ui.toast(err.shortMessage || err.message, 5000);
+      e.target.disabled = false;
+      return;
     }
+    leaveCreatorAndPlay();
   };
-  nameEl.addEventListener("input", remember);
-  box.addEventListener("click", remember);
   const roomNote = document.getElementById("mp-room");
   if (courier.room) {
     roomNote.hidden = false;
     roomNote.querySelector("b").textContent = courier.room;
     document.getElementById("friends").hidden = true;
   }
-  document.getElementById("friends").onclick = () => {
-    remember();
-    courier.room = newRoomCode();
-    history.replaceState(null, "", `?room=${courier.room}`);
-    // Continue an existing save rather than wiping it; the room is joined once play begins.
-    const cont = document.getElementById("continue");
-    (cont.hidden ? document.getElementById("start") : cont).click();
-  };
-  document.getElementById("start").addEventListener("click", remember, { capture: true });
-  document.getElementById("continue").addEventListener("click", remember, { capture: true });
+  setLook(courier.look);
 }
 
 // ------------------------------------------------------------------ loop
@@ -848,6 +945,8 @@ function frame() {
   if (mode === "title") {
     titleT += dt;
     titleCam(titleT);
+  } else if (mode === "creator") {
+    creatorCam(dt);
   } else if (mode === "swoop") {
     swoop.t = Math.min(1, swoop.t + dt / 2.8);
     const e = 1 - Math.pow(1 - swoop.t, 3);
@@ -870,6 +969,7 @@ function frame() {
   }
 
   kai.update(dt, t);
+  kaiPet.pet?.update(dt, kai.group, mover.speed);
   if (mode === "play") net.update(dt, t);
   coins.update(dt, t, found);
   maya.update(dt, t);
@@ -921,7 +1021,14 @@ function frame() {
 
 requestAnimationFrame(frame);
 ui.hideLoading();
-ui.showTitle(!!load(), startGame);
+ui.showTitle(!!load(), {
+  onJoin: (friends) => openCreator(friends),
+  onContinue: () => {
+    rememberCourier();
+    ui.hideTitle();
+    startGame(false);
+  },
+});
 
 // Test hook for automated playtests
 window.__omen = {

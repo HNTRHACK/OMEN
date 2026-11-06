@@ -16,20 +16,26 @@ export const ui = {
     setTimeout(() => $("#loading").remove(), 800);
   },
 
-  showTitle(hasSave, onStart) {
+  /** Landing: Continue (if saved), Join World, Play with friends. */
+  showTitle(hasSave, { onJoin, onContinue }) {
     const t = $("#title");
     t.hidden = false;
+    t.classList.remove("leaving");
     $("#continue").hidden = !hasSave;
-    $("#start").textContent = hasSave ? "New game" : "Start";
-    $("#start").classList.toggle("ghost", hasSave);
-    const go = (fresh) => {
-      t.classList.add("leaving");
-      setTimeout(() => (t.hidden = true), reduce ? 0 : 500);
-      onStart(fresh);
-    };
-    $("#start").onclick = () => go(true);
-    $("#continue").onclick = () => go(false);
-    (hasSave ? $("#continue") : $("#start")).focus();
+    $("#join").textContent = hasSave ? "Customize & join" : "Join World";
+    $("#join").classList.toggle("ghost", hasSave);
+    $("#join").onclick = () => onJoin(false);
+    $("#friends").onclick = () => onJoin(true);
+    $("#continue").onclick = () => onContinue();
+    (hasSave ? $("#continue") : $("#join")).focus();
+  },
+  hideTitle() {
+    for (const id of ["#title", "#creator"]) {
+      const el = $(id);
+      if (el.hidden) continue;
+      el.classList.add("leaving");
+      setTimeout(() => ((el.hidden = true), el.classList.remove("leaving")), reduce ? 0 : 500);
+    }
   },
 
   showHud() {

@@ -9,6 +9,8 @@
 import { Server } from "socket.io";
 import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
 import { merchantById } from "../shared/merchants.js";
+import { cleanLook, lookFromOutfit } from "../shared/look.js";
+import { playerIdOf, TOKEN_RE, ID_RE } from "./identity.js";
 
 export const ROOM_RE = /^[a-z0-9][a-z0-9-]{2,23}$/;
 export const OUTFITS = 6;
@@ -120,23 +122,40 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys() } =
       if (!ROOM_RE.test(room)) return ack({ error: "Room codes are 3–24 letters, digits or dashes." });
       if (!rooms.has(room)) rooms.set(room, new Map());
       const players = rooms.get(room);
-      // Reconnect: the same browser tab gets its old player back instead of a duplicate.
-      const resume = typeof msg?.resume === "string" && /^[a-f0-9]{24}$/.test(msg.resume) ? msg.resume : null;
-      const ghost = resume && ghosts.get(resume);
-      if (ghost && ghost.room === room) {
-        clearTimeout(ghost.timer);
-        ghosts.delete(resume);
-        me = players.get(resume);
-      }
-      if (!me) {
+      const look = msg?.look ? cleanLook(msg.look) : lookFromOutfit(Math.abs(Math.trunc(Number(msg?.outfit) || 0)) % OUTFITS);
+      const name = cleanName(msg?.name);
+      // Identity: a guest token gives a stable id across refreshes and reconnects. (Old clients
+      // without one get a per-tab id they can resume with.)
+      const token = typeof msg?.token === "string" && TOKEN_RE.test(msg.token) ? msg.token : null;
+      const resume = !token && typeof msg?.resume === "string" && ID_RE.test(msg.resume) ? msg.resume : null;
+      const id = token ? playerIdOf(token) : resume;
+      const existing = id ? players.get(id) : null;
+      if (existing) {
+        const ghost = ghosts.get(id);
+        if (ghost) {
+          clearTimeout(ghost.timer);
+          ghosts.delete(id);
+        }
+        if (existing.sock && existing.sock !== sock.id) world.sockets.get(existing.sock)?.emit("replaced"); // same courier opened elsewhere
+        me = existing;
+        const changed = me.name !== name || JSON.stringify(me.look) !== JSON.stringify(look);
+        if (token) Object.assign(me, { name, look });
+        if (changed && token) sock.to(room).emit("look", { id: me.id, name: me.name, look: me.look });
+      } else {
         if (players.size >= MAX_PER_ROOM) return ack({ error: "This room is full." });
-        me = { id: randomBytes(12).toString("hex"), name: cleanName(msg?.name), outfit: Math.abs(Math.trunc(Number(msg?.outfit) || 0)) % OUTFITS, s: null, room };
+        me = { id: id || randomBytes(12).toString("hex"), name, look, s: null, room };
         players.set(me.id, me);
         sock.to(room).emit("joined", pub(me));
       }
       me.sock = sock.id;
       sock.join(room);
       ack({ id: me.id, room, players: [...players.values()].filter((p) => p.id !== me.id).map(pub) });
+    });
+
+    sock.on("look", (l) => {
+      if (!me || !allow()) return;
+      me.look = cleanLook(l);
+      sock.to(me.room).emit("look", { id: me.id, name: me.name, look: me.look });
     });
 
     sock.on("state", (s) => {
@@ -158,6 +177,7 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys() } =
     sock.on("disconnect", () => {
       if (!me) return;
       const p = me;
+      if (p.sock !== sock.id) return; // replaced by a newer connection of the same courier
       // Keep the player briefly so a flaky connection resumes instead of leaving and rejoining.
       ghosts.set(p.id, {
         room: p.room,
@@ -170,7 +190,7 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys() } =
       });
     });
   });
-  const pub = (p) => ({ id: p.id, name: p.name, outfit: p.outfit, s: p.s });
+  const pub = (p) => ({ id: p.id, name: p.name, look: p.look, outfit: p.look.jacket, s: p.s });
 
   // ---------------------------------------------------------------- merchant notifications
   const merchant = io.of("/merchant");

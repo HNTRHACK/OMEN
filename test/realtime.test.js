@@ -174,3 +174,52 @@ test("CSV export escapes quotes and neutralises spreadsheet formulas", () => {
   assert.match(row, /,"'=HYPERLINK\(""x""\)",/);
   assert.match(row, /DEMO INR SETTLEMENT$/);
 });
+
+// ------------------------------------------------------------------ identity + appearance
+import { randomBytes } from "node:crypto";
+import { playerIdOf } from "../server/identity.js";
+const tok = () => randomBytes(32).toString("hex");
+
+test("guest token gives a stable id, even after leaving and rejoining", async () => {
+  const t = tok();
+  const a = await player("ident-room", "Asha", { token: t });
+  assert.equal(a.ack.id, playerIdOf(t));
+  a.s.close();
+  await pause(150);
+  const again = await player("ident-room", "Asha", { token: t });
+  assert.equal(again.ack.id, a.ack.id);
+  again.s.close();
+});
+
+test("opening the same courier in a second tab replaces the first: no duplicate", async () => {
+  const t = tok();
+  const watcher = await player("dup-room", "Watcher", { token: tok() });
+  const first = await player("dup-room", "Asha", { token: t });
+  const replaced = once(first.s, "replaced");
+  const second = await player("dup-room", "Asha", { token: t });
+  await replaced;
+  assert.equal(second.ack.id, first.ack.id);
+  const third = await player("dup-room", "Late", { token: tok() });
+  assert.equal(third.ack.players.filter((p) => p.name === "Asha").length, 1, "one Asha in the room");
+  for (const p of [watcher, first, second, third]) p.s.close();
+});
+
+test("looks are validated and broadcast; junk becomes defaults", async () => {
+  const a = await player("look-room", "Asha", { token: tok(), look: { skin: 2, hat: 4, pet: 1, evil: "<script>", jacket: 999 } });
+  const seen = once(a.s, "joined");
+  const b = await player("look-room", "Ravi", { token: tok() });
+  const asha = b.ack.players.find((p) => p.name === "Asha");
+  assert.equal(asha.look.skin, 2);
+  assert.equal(asha.look.hat, 4);
+  assert.equal(asha.look.pet, 1);
+  assert.equal(asha.look.jacket, 0, "out-of-range value reset");
+  assert.equal(asha.look.evil, undefined, "unknown keys dropped");
+  await seen;
+  const changed = once(b.s, "look");
+  a.s.emit("look", { pet: 3, hat: -1 });
+  const l = await changed;
+  assert.equal(l.look.pet, 3);
+  assert.equal(l.look.hat, 0);
+  a.s.close();
+  b.s.close();
+});

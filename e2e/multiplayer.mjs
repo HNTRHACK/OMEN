@@ -6,7 +6,7 @@ const ROOM = `e2e-${Date.now().toString(36)}`;
 const url = `${BASE.replace(/\/$/, "")}/?room=${ROOM}`;
 const [bA, bB] = await Promise.all([launch(), launch()]);
 const A = await enter(bA, url, { name: "Asha" });
-const B = await enter(bB, url, { name: "Ravi", outfit: 1 });
+const B = await enter(bB, url, { name: "Ravi", look: { jacket: 1, hat: 4, pet: 1, skin: 3, accessory: 2 } });
 const shots = process.env.SHOTS;
 const remotesOf = (page) =>
   page.evaluate(() => [...window.__omen.net.remotes.values()].map((r) => ({ id: r.id, name: r.name, visible: r.c.group.visible, pos: r.c.group.position.toArray(), tag: r.tag.textContent, tagShown: !r.tag.hidden })));
@@ -30,6 +30,13 @@ const ashasJacket = await A.page.evaluate(() => {
   return hex;
 });
 console.log(`OUTFITS: Asha sees Ravi's jacket #${ravisJacket}; her own #${ashasJacket}`);
+// Ravi's full look: top hat, cat, skin, headphones, as Asha sees it
+const ravisLook = await A.page.evaluate(() => {
+  const r = [...window.__omen.net.remotes.values()].find((x) => x.name === "Ravi");
+  return { look: r.c.look, pet: r.pet?.kind ?? null, petInScene: !!r.pet?.group.parent, extras: r.c.extras.map((e) => e.children.length) };
+});
+console.log("APPEARANCE on Asha's screen:", JSON.stringify(ravisLook));
+const appearanceSynced = ravisLook.look.hat === 4 && ravisLook.look.skin === 3 && ravisLook.look.accessory === 2 && ravisLook.pet === 1 && ravisLook.petInScene && ravisLook.extras[0] > 0;
 
 // 2. B walks; A sees B's character move (interpolated)
 await B.page.evaluate(() => window.__omen.teleport(2, 6, 2, 12));
@@ -83,6 +90,17 @@ const after = (await remotesOf(A.page)).filter((r) => r.name === "Ravi");
 const resumed = back && after.length === 1 && after[0].id === idBefore && !(await feedA()).some((t) => /Ravi left/.test(t));
 console.log(`RECONNECT: back=${back} ravis=${after.length} sameId=${after[0]?.id === idBefore}`);
 
+// 4b. B refreshes the page: same courier comes back (stable guest identity), look intact
+await B.page.reload();
+await B.page.waitForSelector("#continue:not([hidden])", { timeout: 120000 });
+await B.page.click("#continue");
+await B.page.waitForFunction(() => window.__omen?.mode === "play", null, { timeout: 60000 });
+await A.page.waitForTimeout(2500);
+const afterRefresh = (await remotesOf(A.page)).filter((r) => r.name === "Ravi");
+const lookAfter = await A.page.evaluate(() => [...window.__omen.net.remotes.values()].find((x) => x.name === "Ravi")?.c.look);
+const refreshKept = afterRefresh.length === 1 && afterRefresh[0].id === idBefore && lookAfter?.hat === 4 && lookAfter?.pet === 1;
+console.log(`REFRESH: ravis=${afterRefresh.length} sameId=${afterRefresh[0]?.id === idBefore} look kept=${lookAfter?.hat === 4 && lookAfter?.pet === 1}`);
+
 // 5. B closes the browser: A is told after the grace period
 await bB.close();
 const leftSeen = await waitFor(A.page, () => [...document.querySelectorAll("#feed li")].some((l) => /Ravi left/.test(l.textContent)) && ![...window.__omen.net.remotes.values()].some((r) => r.name === "Ravi"), null, 20000);
@@ -90,4 +108,4 @@ console.log("LEAVE NOTICE", leftSeen);
 const logs = [...A.logs, ...B.logs];
 console.log("LOGS", logs.join("\n") || "none");
 await bA.close();
-finish({ seeEachOther, joinedNotice, outfitSynced: ravisJacket === "b85c4a" && ashasJacket === "3e8e8a", movementSynced: movedOnA > 0.8 && syncErr < 0.25, scanSeen, paidSeen, noPaymentDetailsLeaked: !leaked, resumed, leftSeen, noPageErrors: logs.length === 0 });
+finish({ seeEachOther, joinedNotice, appearanceSynced, refreshKept, outfitSynced: ravisJacket === "b85c4a" && ashasJacket === "3e8e8a", movementSynced: movedOnA > 0.8 && syncErr < 0.25, scanSeen, paidSeen, noPaymentDetailsLeaked: !leaked, resumed, leftSeen, noPageErrors: logs.length === 0 });

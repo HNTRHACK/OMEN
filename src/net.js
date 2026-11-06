@@ -5,6 +5,8 @@ import * as THREE from "three";
 import { io } from "socket.io-client";
 import { R } from "./palette.js";
 import { Character } from "./character.js";
+import { applyLook, syncPet } from "./avatar.js";
+import { guestToken } from "./identity.js";
 
 const SEND_HZ = 12;
 const DELAY_MS = 120; // render remotes this far in the past, between two received snapshots
@@ -25,16 +27,22 @@ class Remote {
   constructor(scene, p) {
     this.id = p.id;
     this.name = p.name;
+    this.scene = scene;
     this.c = new Character("kai", { unique: true });
-    this.c.setOutfit(p.outfit);
     scene.add(this.c.group);
     this.buf = []; // { t (local receive time), d, f, h, sp, air, talk, hold }
     this.tag = document.createElement("div");
     this.tag.className = "nametag";
-    this.tag.innerHTML = `<span class="sw o${p.outfit}"></span>${esc(p.name)}`;
     document.body.append(this.tag);
+    this.setLook(p.name, p.look);
     this.c.group.visible = false;
     if (p.s) this.push(p.s);
+  }
+  setLook(name, look) {
+    this.name = name;
+    applyLook(this.c, look);
+    syncPet(this.scene, this, this.c.look.pet);
+    this.tag.innerHTML = `<span class="sw o${this.c.look.jacket}"></span>${esc(name)}`;
   }
   push(s) {
     this.buf.push({ ...s, t: performance.now() });
@@ -62,6 +70,7 @@ class Remote {
     this.c.talk = c.talk ? 1 : 0;
     this.c.holding = c.hold;
     this.c.update(dt, t);
+    this.pet?.update(dt, g, c.sp);
     // name tag over the head, hidden behind the camera or far away
     const head = g.localToWorld(new THREE.Vector3(0, 2.25, 0));
     const v = head.clone().project(camera);
@@ -74,6 +83,7 @@ class Remote {
   }
   remove(scene) {
     scene.remove(this.c.group);
+    this.pet?.dispose();
     this.tag.remove();
   }
 }
@@ -99,12 +109,12 @@ export function createNet({ scene, camera, local, feed, onCount = () => {} }) {
     remotes.set(p.id, new Remote(scene, p));
   };
 
-  function join({ room: r, name, outfit }) {
+  function join({ room: r, name, look }) {
     room = r;
     sock?.close();
     sock = io("/world", { transports: ["websocket", "polling"], reconnectionDelayMax: 4000 });
     const hello = () =>
-      sock.emit("join", { room, name, outfit, resume: sessionStorage.getItem(resumeKey()) || undefined }, (res) => {
+      sock.emit("join", { room, name, look, token: guestToken() }, (res) => {
         if (res?.error) return feed(res.error);
         const resumed = res.id === me;
         me = res.id;
@@ -138,6 +148,13 @@ export function createNet({ scene, camera, local, feed, onCount = () => {} }) {
       count();
     });
     sock.on("state", (s) => remotes.get(s.id)?.push(s));
+    sock.on("look", (l) => remotes.get(l.id)?.setLook(l.name, l.look));
+    sock.on("replaced", () => {
+      feed("You opened OMEN in another tab, so this one went quiet.");
+      sock.io.opts.reconnection = false;
+      sock.close();
+      count();
+    });
     sock.on("act", (a) => {
       const rm = remotes.get(a.id);
       if (!rm) return;
@@ -163,6 +180,10 @@ export function createNet({ scene, camera, local, feed, onCount = () => {} }) {
       return remotes.size + 1;
     },
     remotes,
+    /** Tell the room about a new look (avatar edits). */
+    setLook(look) {
+      if (sock?.connected) sock.emit("look", look);
+    },
     act(kind, target = "") {
       if (sock?.connected) sock.emit("act", { kind, target });
     },
