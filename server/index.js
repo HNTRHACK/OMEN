@@ -14,6 +14,9 @@ import { createWebhooks } from "./webhooks.js";
 import { createMarket } from "./market.js";
 import { createCommerce } from "./commerce.js";
 import { playerFromRequest } from "./identity.js";
+import { createCommunity, CATS } from "./community.js";
+import { isModerator } from "./moderation.js";
+import { serveUpload } from "./images.js";
 import { MERCHANTS, merchantKey } from "../shared/merchants.js";
 import { WHITECHAIN, USDT } from "../shared/chains.js";
 import { FEE_BPS } from "../shared/money.js";
@@ -28,7 +31,11 @@ export function toCsv(rows) {
   return [CSV_COLS.join(","), ...rows.map((r) => CSV_COLS.map((c) => csvCell(c === "createdAt" ? new Date(r.createdAt).toISOString() : r[c])).join(","))].join("\n") + "\n";
 }
 
-export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys(), market = createMarket(), commerce = null }) {
+export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys(), market = createMarket(), commerce = null, community = null }) {
+  const name = (b) => String(b?.name || "").slice(0, 16);
+  const modOnly = (req) => {
+    if (!isModerator(req)) throw new ApiError(403, "not_moderator", "Moderators only.");
+  };
   /** Merchant routes need that merchant's access key: Authorization: Bearer <key>. */
   const merchantOnly = (id, req) => {
     const key = /^Bearer (.+)$/.exec(req.headers.authorization || "")?.[1] || "";
@@ -74,6 +81,22 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
           ["POST", /^\/api\/invoices\/([\w-]{36})\/cancel$/, async ([id], b, req) => commerce.cancelInvoice(playerFromRequest(req), id)],
         ]
       : []),
+    // Community: forum, reports, billboard ads, moderation
+    ...(community
+      ? [
+          ["GET", /^\/api\/forum$/, async (_, b, req, url) => ({ cats: CATS, threads: community.listThreads(url.searchParams.get("cat") || null) })],
+          ["GET", /^\/api\/forum\/([\w-]{36})$/, async ([id]) => community.getThread(id)],
+          ["POST", /^\/api\/forum$/, async (_, b, req) => community.newThread(playerFromRequest(req), name(b), b)],
+          ["POST", /^\/api\/forum\/([\w-]{36})\/reply$/, async ([id], b, req) => community.reply(playerFromRequest(req), name(b), id, b)],
+          ["POST", /^\/api\/report$/, async (_, b, req) => community.report(playerFromRequest(req), b)],
+          ["GET", /^\/api\/ads$/, async () => ({ ads: community.liveAds() })],
+          ["GET", /^\/api\/ads\/mine$/, async (_, b, req) => ({ ads: community.myAds(playerFromRequest(req)) })],
+          ["POST", /^\/api\/ads$/, async (_, b, req) => community.submitAd(playerFromRequest(req), name(b), b), { maxBody: 1_048_576 }],
+          ["POST", /^\/api\/ads\/([\w-]{36})\/rent$/, async ([id], b, req) => community.payRent(playerFromRequest(req), id, b)],
+          ["GET", /^\/api\/mod\/queue$/, async (_, b, req) => (modOnly(req), community.modQueue())],
+          ["POST", /^\/api\/mod$/, async (_, b, req) => (modOnly(req), community.moderate(b))],
+        ]
+      : []),
     // Merchant: payment history (JSON) and accountant export (CSV)
     ["GET", /^\/api\/merchant\/([a-z-]{3,32})\/payments$/, async ([id], _, req, url) => {
       merchantOnly(id, req);
@@ -93,6 +116,7 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
       });
       res.end(JSON.stringify(body));
     };
+    if (url.pathname.startsWith("/uploads/")) return serveUpload(community?.uploadsDir, url.pathname.slice(9), res);
     if (!url.pathname.startsWith("/api/")) return serveStatic(url.pathname, res);
     if (req.method === "OPTIONS" && config.allowedOrigin) {
       res.writeHead(204, { "access-control-allow-origin": config.allowedOrigin, "access-control-allow-methods": "GET,POST", "access-control-allow-headers": "content-type" });
@@ -100,13 +124,13 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
     }
     if (limited(clientIp(req))) return send(429, { error: "rate_limited", message: "Too many requests. Slow down a little." });
     try {
-      for (const [m, re, fn] of routes) {
+      for (const [m, re, fn, opts] of routes) {
         const match = re.exec(url.pathname);
         if (!match || m !== req.method) continue;
         let body = {};
         if (m === "POST") {
           if (!/^application\/json/.test(req.headers["content-type"] || "")) throw new ApiError(415, "json_only", "Send JSON.");
-          body = await readJson(req);
+          body = await readJson(req, opts?.maxBody);
         }
         const out = await fn(match.slice(1), body, req, url);
         if (out?.__raw) {
@@ -133,13 +157,13 @@ export function clientIp(req) {
   return req.socket.remoteAddress || "?";
 }
 
-function readJson(req) {
+function readJson(req, max = 16_384) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     req.on("data", (c) => {
       size += c.length;
-      if (size > 16_384) {
+      if (size > max) {
         reject(new ApiError(413, "too_large", "Request too large."));
         req.destroy();
       } else chunks.push(c);
@@ -180,6 +204,7 @@ export function createGateway({ onChange = () => {}, notify = { player() {}, all
   const store = new Store(config.dataDir);
   const relayer = createRelayer();
   let commerce = null; // set below; payment changes also settle marketplace orders
+  let community = null; // and billboard rentals
   const service = createPaymentService({
     store,
     rates: () => usdtInr(),
@@ -191,11 +216,13 @@ export function createGateway({ onChange = () => {}, notify = { player() {}, all
     onChange: (p) => {
       onChange(p);
       commerce?.onPayment(p);
+      community?.onPayment(p);
     },
     quoteTtlMs: config.quoteTtlMs,
   });
   commerce = createCommerce({ dir: config.dataDir, payments: service, notify });
-  setInterval(() => commerce.sweep(), 30_000).unref();
+  community = createCommunity({ dir: config.dataDir, payments: service, notify });
+  setInterval(() => (commerce.sweep(), community.sweep()), 30_000).unref();
   const publicConfig = () => ({
     whitechain: { ...WHITECHAIN, rpc: undefined },
     usdt: USDT,
@@ -207,8 +234,9 @@ export function createGateway({ onChange = () => {}, notify = { player() {}, all
     merchants: MERCHANTS.map((m) => ({ ...m, key: merchantKey(m.id) })),
     inrPayout: "simulated",
   });
-  const app = createApp({ service, publicConfig, store, commerce });
+  const app = createApp({ service, publicConfig, store, commerce, community });
   app.commerce = commerce;
+  app.community = community;
   app.service = service;
   app.store = store;
   return app;
@@ -228,7 +256,7 @@ export function createNotifier() {
   let rt = null;
   return {
     webhooks,
-    attach: (httpServer) => (rt = attachRealtime(httpServer)),
+    attach: (httpServer, community) => (rt = attachRealtime(httpServer, { isMuted: (id) => community?.muted(id) })),
     notify: { player: (id, ev, d) => rt?.toPlayer(id, ev, d), all: (ev, d) => rt?.toAll(ev, d) },
     onChange: (p) => {
       rt?.notifyPayment(p);
@@ -239,8 +267,9 @@ export function createNotifier() {
 
 export function start() {
   const notifier = createNotifier();
-  const server = createServer(createGateway({ onChange: notifier.onChange, notify: notifier.notify }));
-  notifier.attach(server);
+  const app = createGateway({ onChange: notifier.onChange, notify: notifier.notify });
+  const server = createServer(app);
+  notifier.attach(server, app.community);
   server.listen(config.port, () => {
     logStatus(`on http://localhost:${config.port}`);
   });

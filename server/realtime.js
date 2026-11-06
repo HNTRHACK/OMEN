@@ -11,6 +11,7 @@ import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
 import { merchantById } from "../shared/merchants.js";
 import { cleanLook, lookFromOutfit } from "../shared/look.js";
 import { playerIdOf, TOKEN_RE, ID_RE } from "./identity.js";
+import { moderateText } from "./moderation.js";
 
 export const ROOM_RE = /^[a-z0-9][a-z0-9-]{2,23}$/;
 export const OUTFITS = 6;
@@ -105,7 +106,8 @@ export function merchantView(p) {
   };
 }
 
-export function attachRealtime(httpServer, { merchantAccess = merchantKeys() } = {}) {
+export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), isMuted = () => false } = {}) {
+  const chatLog = new Map(); // room → last messages, for players who arrive mid-conversation
   const io = new Server(httpServer, { serveClient: false, maxHttpBufferSize: 4096, pingInterval: 10_000, pingTimeout: 8_000 });
   const rooms = new Map(); // room → Map(playerId → player)
   const ghosts = new Map(); // playerId → { room, timer } (disconnected, may come back)
@@ -150,7 +152,23 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys() } =
       me.sock = sock.id;
       sock.data.playerId = me.id; // for per-player notifications (orders, invoices)
       sock.join(room);
-      ack({ id: me.id, room, players: [...players.values()].filter((p) => p.id !== me.id).map(pub) });
+      ack({ id: me.id, room, players: [...players.values()].filter((p) => p.id !== me.id).map(pub), chat: chatLog.get(room) || [] });
+    });
+
+    const chatAllow = limiter(0.8, 4); // ~1 message a second, short bursts
+    sock.on("chat", (msg, ack) => {
+      const reply = typeof ack === "function" ? ack : () => {};
+      if (!me) return reply({ error: "Join the world first." });
+      if (isMuted(me.id)) return reply({ error: "A moderator has muted this courier." });
+      if (!chatAllow()) return reply({ error: "Slow down a little." });
+      const r = moderateText(msg?.text, { max: 160, min: 1, links: 0 });
+      if (!r.ok) return reply({ error: r.reason });
+      const line = { id: me.id, name: me.name, text: r.text, t: Date.now() };
+      const log = chatLog.get(me.room) || [];
+      log.push(line);
+      chatLog.set(me.room, log.slice(-30));
+      world.to(me.room).emit("chat", line);
+      reply({ ok: true });
     });
 
     sock.on("look", (l) => {

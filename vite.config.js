@@ -10,7 +10,7 @@ const gateway = () => ({
     const notifier = createNotifier();
     const handle = createGateway({ onChange: notifier.onChange, notify: notifier.notify });
     // Socket.IO (multiplayer + merchant notifications) rides on Vite's own HTTP server.
-    if (server.httpServer) notifier.attach(server.httpServer);
+    if (server.httpServer) notifier.attach(server.httpServer, handle.community);
     logStatus("mounted at /api (dev)");
     server.middlewares.use((req, res, next) => (req.url.startsWith("/api/") ? handle(req, res) : next()));
   },
