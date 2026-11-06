@@ -15,6 +15,7 @@ import { ui, bindInput, clearHeldKeys } from "./ui.js";
 import { audio } from "./audio.js";
 import { toon } from "./assets.js";
 import { initPay } from "./pay/index.js";
+import { createPerf } from "./perf.js";
 import "./style.css";
 
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -46,15 +47,27 @@ sun.shadow.radius = 3;
 scene.add(hemi, sun, sun.target);
 
 const ink = new InkPass(renderer);
+let pr = PR; // current render scale; adaptive quality may lower it
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
-  ink.setSize(innerWidth, innerHeight, PR);
+  ink.setSize(innerWidth, innerHeight, pr);
   camera.aspect = innerWidth / innerHeight;
   camera.fov = innerWidth < innerHeight ? 62 : 50;
   camera.updateProjectionMatrix();
 }
 addEventListener("resize", resize);
 resize();
+const perf = createPerf({
+  renderer,
+  sun,
+  basePR: PR,
+  mobile: MOBILE,
+  apply(p) {
+    pr = p;
+    renderer.setPixelRatio(p);
+    resize();
+  },
+});
 
 // ------------------------------------------------------------------ load
 
@@ -827,7 +840,9 @@ const lightDir = new THREE.Vector3();
 let saveT = 0;
 
 function frame() {
-  const dt = Math.min(clock.getDelta(), 0.1); // real-time down to 10 fps; beyond that, slow down rather than tunnel
+  const raw = clock.getDelta();
+  const dt = Math.min(raw, 0.1); // real-time down to 10 fps; beyond that, slow down rather than tunnel
+  perf.frame(raw);
   const t = clock.elapsedTime;
 
   if (mode === "title") {
@@ -928,6 +943,7 @@ window.__omen = {
   courier,
   coins,
   coinCard,
+  perf,
   get mode() {
     return mode;
   },
