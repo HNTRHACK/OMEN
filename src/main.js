@@ -10,6 +10,8 @@ import { InkPass } from "./post.js";
 import { Envelope, Particles, Smoke, Birds, flying } from "./fx.js";
 import { ui, bindInput } from "./ui.js";
 import { audio } from "./audio.js";
+import { toon } from "./assets.js";
+import { initPay } from "./pay/index.js";
 import "./style.css";
 
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -205,6 +207,7 @@ async function line(who, char, text, opts) {
 }
 
 async function talkMaya() {
+  const at = state.stage;
   await converse(maya, async () => {
     if (state.stage === "start") {
       await line("MAYA", maya, "KAI! Thank the kettle, you came.");
@@ -228,6 +231,7 @@ async function talkMaya() {
       await env.fly(kai.local(0.35, 1.1, 0.3), maya.local(0.3, 1.25, 0.3), { height: 1.4, duration: 1.4 });
       kai.holding = false;
       take("sealed");
+      pay.logDelivery({ id: "findings-88", to: "maya-chai", note: "Courier KAI delivered Orin's sealed findings on block 88 to Maya" });
       maya.holding = true;
       audio.chime([0, 7]);
       await line("MAYA", maya, "A block signed by... nobody? Who rewrites a tea seller's payment?");
@@ -245,14 +249,24 @@ async function talkMaya() {
         relight: "If Orin says the lantern's dark, it's dark. He talks to those relays like they're his grandchildren.",
         backToOrin: "The plaza lantern's glowing again! Go on, Orin will want to see.",
         echo: "Who's that up at the lookout? I've never seen them at the stall.",
-        done: "The kettle's on. It's always on, for you.",
+        done: "The kettle's on. It's always on, for you. And the QR on my sign takes crypto now, if you fancy a cup.",
       };
       await line("MAYA", maya, lines[state.stage] || lines.done);
+      if (!["start", "deliver"].includes(at)) {
+        const pick = await line("MAYA", maya, "Anything else? You can pay at the QR sign by the counter.", {
+          choices: [
+            { label: "Scan your QR to buy chai", value: "buy" },
+            { label: "Just passing by", value: "no" },
+          ],
+        });
+        if (pick === "buy") scanAfter = "maya-chai";
+      }
     }
   });
 }
 
 async function talkOrin() {
+  const at = state.stage;
   await converse(orin, async () => {
     if (state.stage === "start") {
       await line("ORIN", orin, "Mind the cables. Mind the other cables. Maya's looking for you, I think. Something about a payment.");
@@ -275,10 +289,20 @@ async function talkOrin() {
       await line("ORIN", orin, "Block 88. Signed by a node called... nothing. There's no such node in Blockhaven.");
       await line("ORIN", orin, "Take my findings to Maya. Sealed. If someone's rewriting blocks, I'd rather the whole plaza didn't hear it.");
       take("receipt");
+      pay.logDelivery({ id: "receipt-4127", to: "orin-relay", note: "Courier KAI delivered pending receipt #4127 to Orin" });
       give("sealed");
       setStage("deliver");
     } else {
       await line("ORIN", orin, state.stage === "done" ? "A node with no name. I'll be listening to the relays tonight." : "Deliver it, courier! My tea's getting cold and so is the trail.");
+    }
+    if (!["toOrin", "backToOrin"].includes(at)) {
+      const pick = await line("ORIN", orin, "Need parts? Fuses, tune-ups. My QR's on the board out front. Stablecoins welcome, they settle faster than my kettle boils.", {
+        choices: [
+          { label: "Scan the QR", value: "buy" },
+          { label: "Not today", value: "no" },
+        ],
+      });
+      if (pick === "buy") scanAfter = "orin-relay";
     }
   });
 }
@@ -373,6 +397,139 @@ function celebrate() {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// ------------------------------------------------------------------ scan & pay: wallet, QR signs, payment journey
+
+let scanAfter = null; // a conversation can end by sending KAI to a merchant's QR sign
+const pay = initPay({
+  onOpenChange(open) {
+    busy = open;
+    mover.enabled = !open && mode === "play";
+    input.x = input.y = 0;
+    if (!open) payStatus(null);
+  },
+  onStage: (stage, co) => journey(stage, co),
+});
+
+// Painted QR signs on a post. The texture IS the merchant's UPI QR; scanning decodes its pixels.
+const signs = {};
+function qrSign(merchantId, building, local, faceLocal) {
+  const canvas = pay.signCanvas(merchantId);
+  const g = new THREE.Group();
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 1.5, 8), toon(P.wood));
+  post.position.y = 0.75;
+  const board = new THREE.Mesh(new THREE.BoxGeometry(0.86, 1.06, 0.06), toon(P.cream));
+  board.position.set(0, 1.62, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.NearestFilter;
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.7), new THREE.MeshBasicMaterial({ map: tex }));
+  face.position.set(0, 1.68, 0.035);
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.16, 0.07), toon(P.teal));
+  cap.position.set(0, 2.2, 0);
+  for (const m of [post, board, cap]) (m.castShadow = true), (m.receiveShadow = true);
+  g.add(post, board, face, cap);
+  building.add(g);
+  g.position.copy(local);
+  g.lookAt(building.localToWorld(faceLocal.clone()));
+  g.updateMatrixWorld(true);
+  const at = g.getWorldPosition(new THREE.Vector3());
+  W.colliders.push({ dir: at.clone().normalize(), r: 0.35 });
+  signs[merchantId] = { group: g, canvas, at, top: () => g.localToWorld(new THREE.Vector3(0, 2.45, 0)), front: () => g.localToWorld(new THREE.Vector3(0, 0, 1.1)) };
+}
+qrSign("maya-chai", W.hero.chai, new THREE.Vector3(2.35, 0, 3.6), new THREE.Vector3(2.35, 0, 12));
+qrSign("orin-relay", W.hero.workshop, new THREE.Vector3(3.3, 0, 4.2), new THREE.Vector3(3.3, 0, 12));
+
+function startScan(merchantId) {
+  const s = signs[merchantId];
+  mover.face(s.at);
+  particles.burst(s.top(), "spark", 14, 1.5);
+  audio.chime([12, 16], 0.06);
+  pay.startCheckout({ merchantId, sign: s.canvas });
+}
+
+// The in-world status chip ("Paying Maya · settling on Whitechain")
+const chip = document.createElement("p");
+chip.id = "pay-status";
+chip.hidden = true;
+chip.setAttribute("role", "status");
+document.body.append(chip);
+function payStatus(html) {
+  chip.hidden = !html;
+  if (html) chip.innerHTML = html;
+}
+
+function makeCoin() {
+  const g = new THREE.Group();
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.06, 20), new THREE.MeshBasicMaterial({ color: P.netGlow }));
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.035, 6, 20), new THREE.MeshBasicMaterial({ color: P.butter }));
+  disc.rotation.x = Math.PI / 2;
+  g.add(disc, rim);
+  g.scale.setScalar(1.4);
+  return g;
+}
+const npcOf = (co) => (co?.payment?.merchant?.npc === "orin" || co?.merchant?.npc === "orin" ? orin : maya);
+const crystalPos = () => W.crystal.getWorldPosition(new THREE.Vector3());
+let relayFlash = 0; // seconds the relay crystal glows for a payment (visual only, story state untouched)
+let coinAt = null;
+
+async function journey(stage, co) {
+  const npc = npcOf(co);
+  const p = co?.payment;
+  const tag = p?.mode === "testnet" ? `<span class="badge real">REAL TESTNET</span>` : p ? `<span class="badge demo">DEMO</span>` : "";
+  const who = p?.merchant?.name || co?.merchant?.name || "merchant";
+  if (stage === "scan") {
+    kai.talk = 0;
+    payStatus(`Scanning ${who}'s QR…`);
+  } else if (stage === "quote") {
+    payStatus(`${tag} Quote from the gateway…`);
+  } else if (stage === "review") {
+    payStatus(`${tag} Review the quote and safety check`);
+  } else if (stage === "approve") {
+    kai.holding = true;
+    payStatus(`${tag} Waiting for your approval…`);
+  } else if (stage === "settle") {
+    // KAI's coin flies to the plaza relay: the network carrying the payment
+    kai.holding = false;
+    payStatus(`${tag} Settling ${p?.mode === "testnet" ? "on Whitechain Sepolia" : "DEMO credits"}…`);
+    relayFlash = 4;
+    const coin = new Envelope(scene);
+    coin.mesh = makeCoin();
+    const at = (coinAt = crystalPos().addScaledVector(crystalPos().normalize(), 0.6));
+    audio.zap();
+    await coin.fly(kai.local(0.3, 1.2, 0.3), at, { height: 5, duration: 1.3 });
+    particles.burst(at, "spark", 40, 3); // `at`, not coinAt: the sheet may have closed meanwhile
+  } else if (stage === "payout") {
+    payStatus(`${tag} <span class="badge sim">SIMULATED INR</span> Rupees on their way to ${who}…`);
+    const coin = new Envelope(scene);
+    coin.mesh = makeCoin();
+    relayFlash = Math.max(relayFlash, 1.4);
+    await coin.fly(coinAt || crystalPos(), npc.local(0.2, 1.3, 0.3), { height: 4, duration: 1.2 });
+  } else if (stage === "done") {
+    audio.chime([0, 4, 7, 12], 0.09);
+    npc.cheer = 1.4;
+    kai.cheer = 0.8;
+    particles.burst(npc.local(0, 2.1, 0.6), npc === maya ? "petal" : "spark", npc === maya ? 60 : 40, 4);
+    const inr = p ? `₹${(p.quote.inrPaise / 100).toFixed(2)}` : "";
+    payStatus(`${tag} Paid ${inr} to ${who} · INR payout simulated`);
+    const what = (p?.upi?.note || "").toLowerCase();
+    ui.toast(npc === maya ? `Maya: “Paid! ${what ? `One ${what}` : "Your order"}, coming right up.”` : `Orin: “Received${what ? `: one ${what}` : ""}! Mind the cables on your way out.”`, 4200);
+  } else if (stage === "fail") {
+    kai.holding = false;
+    payStatus(`${tag} Payment didn't go through. Nothing was charged unless a transaction is shown.`);
+  } else if (stage === "arkiv") {
+    particles.burst(kai.local(0, 2, 0), "spark", 24, 2);
+    audio.chime([7, 12], 0.07);
+    ui.toast("Receipt written to Arkiv by your wallet");
+  } else if (stage === "close") {
+    kai.holding = false;
+    coinAt = null;
+  }
+}
+
+addEventListener("keydown", (e) => {
+  if ((e.key === "p" || e.key === "P") && mode === "play" && !busy && !ui.dialogueOpen() && !pay.isOpen()) pay.openWallet();
+});
+
 // ------------------------------------------------------------------ what can KAI interact with?
 
 const relayPos = mapDir(0, 0).multiplyScalar(R);
@@ -383,6 +540,8 @@ const talkables = [
   { label: "Talk to the stranger", at: () => echo.local(0, 0, 1.4), head: () => headOf(echo), run: talkEcho, range: 2.6, when: () => echo.group.visible },
   { get label() { return state.relay ? "Look at Relay 03" : "Examine Relay 03"; }, at: () => relayPos, head: () => relayPos.clone().addScaledVector(relayPos.clone().normalize(), 4.6), run: useRelay, range: 2.7 },
   { label: "Read the notice board", at: () => boardPos.clone().add(new THREE.Vector3()), head: () => boardPos.clone().addScaledVector(boardPos.clone().normalize(), 2.2), run: readBoard, range: 2.2 },
+  { label: "Scan Maya's QR to pay", at: () => signs["maya-chai"].front(), head: () => signs["maya-chai"].top(), run: async () => startScan("maya-chai"), range: 1.8 },
+  { label: "Scan Orin's QR to pay", at: () => signs["orin-relay"].front(), head: () => signs["orin-relay"].top(), run: async () => startScan("orin-relay"), range: 1.8 },
 ];
 let near = null;
 function findNear() {
@@ -402,7 +561,10 @@ function findNear() {
 async function act() {
   if (busy || mode !== "play" || !near) return;
   ui.prompt(null);
+  scanAfter = null;
   await near.run();
+  if (scanAfter) startScan(scanAfter);
+  scanAfter = null;
 }
 bindInput(input, { onAct: act, onOrbit: (dx, dy) => rig.orbit(dx, dy) });
 
@@ -543,8 +705,16 @@ function frame() {
     marker.rotateX(-Math.PI / 2.4);
   }
   // relay crystal pulses when it's alive
-  if (state.relay) W.crystal.material.emissiveIntensity = 1.1 + Math.sin(t * 3) * 0.35;
-  W.crystal.rotation.y += dt * (state.relay ? 1.2 : 0.1);
+  if (relayFlash > 0) {
+    relayFlash -= dt;
+    const m = W.crystal.material;
+    if (relayFlash > 0) {
+      m.color.set(P.netGlow);
+      m.emissive.set(P.netGlow);
+      m.emissiveIntensity = 1.4 + Math.sin(t * 14) * 0.6;
+    } else setRelay(state.relay); // back to whatever the story says
+  } else if (state.relay) W.crystal.material.emissiveIntensity = 1.1 + Math.sin(t * 3) * 0.35;
+  W.crystal.rotation.y += dt * (relayFlash > 0 ? 4 : state.relay ? 1.2 : 0.1);
 
   // light from over the viewer's shoulder; shadows follow KAI
   const up = mode === "play" ? mover.dir : camera.up;
@@ -578,6 +748,9 @@ window.__omen = {
   echo,
   talkables,
   W,
+  pay,
+  signs,
+  startScan,
   get mode() {
     return mode;
   },

@@ -206,7 +206,8 @@ export function bindInput(input, { onAct, onOrbit }) {
     input.run = keys.has("shift");
   };
   addEventListener("keydown", (e) => {
-    if (e.target.closest?.("input, textarea")) return;
+    if (e.target.closest?.("input, textarea, select, #pay")) return;
+    if (document.getElementById("pay")?.hidden === false) return; // wallet/checkout sheet owns the keyboard
     const k = e.key.toLowerCase();
     if (ui.dialogueOpen()) return;
     if (k === "e" || k === "enter") return onAct();
