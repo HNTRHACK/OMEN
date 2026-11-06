@@ -74,7 +74,11 @@ export function buildWorld(scene) {
     const fwd = fx === 0 && fz === 0 ? null : [fx, fz];
     // props with face (0,0) look at the plaza centre from where they stand, i.e. face away from it
     const target = fwd || [x * 2, z * 2];
-    add(name, mapMatrix(x, z, target[0], target[1], s));
+    const placement = mapMatrix(x, z, target[0], target[1], s);
+    if (name === "signpost") {
+      placement.multiply(new THREE.Matrix4().makeRotationY(Math.PI));
+    }
+    add(name, placement);
   }
 
   // ---------------------------------------------------------------- houses along the lanes

@@ -153,7 +153,7 @@ def signpost():
     reset()
     cyl(0.07, 2.4, (0, 0, 1.2), "wood", verts=8)
     ball(0.1, (0, 0, 2.42), "brass", subdiv=1)
-    for i, (label, ang, col) in enumerate((("MAYA'S CHAI", 20, "butter"), ("RELAY WORKS", 160, "mint"), ("COURIER POST", -60, "cream"))):
+    for i, (label, ang, col) in enumerate((("MAYA'S CHAI", 30, "butter"), ("RELAY WORKS", 160, "mint"), ("COURIER POST", -105, "cream"))):
         z = 2.0 - i * 0.38
         a = math.radians(ang)
         cx, cy = math.cos(a) * 0.55, math.sin(a) * 0.55
