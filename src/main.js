@@ -130,7 +130,66 @@ function save() {
 }
 function load() {
   try {
-    return JSON.parse(localStorage.getItem("omen.save") || "null");
+    const s = JSON.parse(localStorage.getItem("omen.save") || "null");
+
+    if (!s || typeof s !== "object" || Array.isArray(s)) return null;
+
+    if (
+      typeof s.stage !== "string" ||
+      !Object.hasOwn(STAGES, s.stage)
+    ) {
+      return null;
+    }
+
+    if (
+      !Array.isArray(s.items) ||
+      !s.items.every(
+        (id) => typeof id === "string" && Object.hasOwn(ITEMS, id),
+      )
+    ) {
+      return null;
+    }
+
+    if (
+      typeof s.relay !== "boolean" ||
+      typeof s.festival !== "boolean"
+    ) {
+      return null;
+    }
+
+    // Accept only finite, nonzero three-dimensional vectors.
+    const unit = (v) => {
+      if (
+        !Array.isArray(v) ||
+        v.length !== 3 ||
+        !v.every(Number.isFinite)
+      ) {
+        return null;
+      }
+
+      const length = Math.hypot(...v);
+      if (!Number.isFinite(length) || length < 1e-8) return null;
+
+      return v.map((n) => n / length);
+    };
+
+    const d = unit(s.d);
+    const facing = unit(s.f);
+    if (!d || !facing) return null;
+
+    // Keep the facing direction tangent to the planet.
+    const dot = d.reduce((sum, n, i) => sum + n * facing[i], 0);
+    const f = unit(facing.map((n, i) => n - dot * d[i]));
+    if (!f) return null;
+
+    return {
+      stage: s.stage,
+      items: [...new Set(s.items)],
+      relay: s.relay,
+      festival: s.festival,
+      d,
+      f,
+    };
   } catch {
     return null;
   }
@@ -345,7 +404,7 @@ async function talkEcho() {
         }
         location.reload();
       },
-      () => {},
+      () => { },
     );
   }, 1200);
 }
