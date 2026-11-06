@@ -25,6 +25,10 @@ export const config = {
   whitechainRpc: e.WHITECHAIN_RPC || "https://rpc.testnet.whitechain.io/",
   checkoutAddress: addr(e.CHECKOUT_ADDRESS),
   minConfirmations: Number(e.MIN_CONFIRMATIONS || 1),
+  // Gasless checkout relayer: a SERVER-ONLY testnet key holding a little WBT for gas.
+  relayerKey: /^0x[0-9a-fA-F]{64}$/.test(e.RELAYER_PRIVATE_KEY || "") ? e.RELAYER_PRIVATE_KEY : null,
+  relayerMaxPerHour: Number(e.RELAYER_MAX_PER_HOUR || 60),
+  relayerMinWei: BigInt(Math.round(Number(e.RELAYER_MIN_WBT || 0.002) * 1e9)) * 1_000_000_000n,
 
   // INR price source. CoinGecko's public API, with a clearly labelled fixed fallback.
   rateUrl: e.RATE_URL || "https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=inr",

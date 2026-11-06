@@ -2,7 +2,9 @@
 // All side effects (clock, rates, 0G, chain) are injected so the whole flow is testable offline.
 
 import { randomBytes, randomUUID } from "node:crypto";
-import { getAddress, isAddress } from "viem";
+import { getAddress, isAddress, recoverTypedDataAddress } from "viem";
+import { authorizationTypedData, forViem } from "../shared/eip3009.js";
+import { noProvider, inrLeg } from "./offramp.js";
 import { parseUpiQr, UpiError, inrToPaise, MAX_INR_PAISE, formatInr } from "../shared/upi.js";
 import { merchantByVpa, merchantKey } from "../shared/merchants.js";
 import { quote, formatUnits, FEE_BPS } from "../shared/money.js";
@@ -22,11 +24,21 @@ export class ApiError extends Error {
 // DEMO credits: 1 credit = ₹1 by definition, 2 decimals. No chain, no value.
 export const DEMO = { symbol: "DEMO", decimals: 2, rate: "1" };
 
-export function createPaymentService({ store, rates, infer, verify, checkoutConfigured, quoteTtlMs = 120_000, now = () => Date.now() }) {
+export function createPaymentService({ store, rates, infer, verify, checkoutConfigured, checkoutAddress = () => null, relayer = null, offramp = noProvider, onChange = () => {}, quoteTtlMs = 120_000, now = () => Date.now() }) {
+  // Every state change goes through save(), which also tells listeners (merchant views, webhooks).
+  const save = (p) => {
+    store.put(p);
+    try {
+      onChange(p);
+    } catch (e) {
+      console.error("onChange listener failed:", e);
+    }
+    return p;
+  };
   const need = (id) => {
     const p = store.get(String(id));
     if (!p) throw new ApiError(404, "not_found", "No such payment.");
-    if (expireIfStale(p, now())) store.put(p);
+    if (expireIfStale(p, now())) save(p);
     return p;
   };
 
@@ -74,6 +86,7 @@ export function createPaymentService({ store, rates, infer, verify, checkoutConf
         rate: q.rate,
         rateSource: r.source,
         rateNote: r.note,
+        rateAt: r.at ?? now(),
         tokenUnits: q.tokenUnits.toString(),
         tokenAmount: formatUnits(q.tokenUnits, q.decimals),
         decimals: q.decimals,
@@ -86,7 +99,7 @@ export function createPaymentService({ store, rates, infer, verify, checkoutConf
       payout: null,
       history: [{ to: S.QUOTED, at: t }],
     };
-    return store.put(p);
+    return save(p);
   }
 
   async function risk(id) {
@@ -96,7 +109,7 @@ export function createPaymentService({ store, rates, infer, verify, checkoutConf
     p.risk = await assess(upi, p.quote.inrPaise, infer);
     if (p.risk.decision === "block") transition(p, S.BLOCKED, { reason: "Risk check blocked this payment." }, now());
     else transition(p, S.RISK_ASSESSED, { decision: p.risk.decision, ai: p.risk.ai.status }, now());
-    return store.put(p);
+    return save(p);
   }
 
   function authorize(id, { payer, acknowledgeRisk } = {}) {
@@ -114,9 +127,12 @@ export function createPaymentService({ store, rates, infer, verify, checkoutConf
         inrPaise: String(p.quote.inrPaise),
         deadline: String(Math.floor(p.quote.expiresAt / 1000)),
       };
+      // Gasless (Operate): the payer signs this EIP-3009 authorization; the relayer pays the gas.
+      p.chain.gasless = !!(relayer && checkoutAddress());
+      if (p.chain.gasless) p.chain.typedData = authorizationTypedData(checkoutAddress(), p.chain);
     } else if (payer && isAddress(payer)) p.payer = getAddress(payer);
     transition(p, S.AWAITING_WALLET, {}, now());
-    return store.put(p);
+    return save(p);
   }
 
   async function submit(id, { txHash, demoRef } = {}) {
@@ -135,7 +151,7 @@ export function createPaymentService({ store, rates, infer, verify, checkoutConf
     if (!store.claimTx(hash)) throw new ApiError(409, "tx_reused", "That transaction has already been used for a payment.");
     p.txHash = hash;
     transition(p, S.SUBMITTED, { txHash: hash }, now());
-    store.put(p);
+    save(p);
     return refresh(id);
   }
 
@@ -153,34 +169,65 @@ export function createPaymentService({ store, rates, infer, verify, checkoutConf
       if (p.state !== S.SUBMITTED) return p; // settled by a concurrent request
       if (e instanceof VerifyError && e.retry) {
         p.verifyNote = e.message;
-        return store.put(p);
+        return save(p);
       }
       store.releaseTx(p.txHash);
       transition(p, S.FAILED, { reason: e.message, code: e.code }, now());
-      return store.put(p);
+      return save(p);
     }
   }
 
-  function settleInr(p) {
-    // No licensed payout partner is integrated, so this leg is simulated and says so.
-    p.payout = {
-      simulated: true,
-      label: "SIMULATED INR payout: no real rupees moved",
-      ref: "SIM-" + randomBytes(6).toString("hex").toUpperCase(),
-      inrPaise: p.quote.inrPaise,
-      to: p.upi.vpa,
-    };
-    transition(p, S.PAYOUT_SIMULATED, { ref: p.payout.ref }, now());
+  /** Gasless: relay the payer's signed authorization. The payer sends no transaction and pays no gas. */
+  async function relay(id, { signature } = {}) {
+    const p = need(id);
+    if (p.mode !== "testnet") throw new ApiError(400, "not_testnet", "Only testnet USDT payments are relayed.");
+    // Idempotent: a client retrying after a lost response gets the payment's real state back.
+    if (p.state === S.SUBMITTED) return refresh(id);
+    if (p.relayed && [S.CONFIRMED, S.PAYOUT_SIMULATED, S.COMPLETED].includes(p.state)) return p;
+    if (p.state !== S.AWAITING_WALLET) throw new ApiError(409, "bad_state", `Payment is ${p.state}; it can't be relayed.`);
+    if (!relayer || !p.chain?.gasless) throw new ApiError(503, "relayer_off", "Gasless checkout isn't configured on this server.");
+    if (p.relaying) throw new ApiError(409, "in_progress", "This payment is already being submitted.");
+    if (!/^0x[0-9a-fA-F]{130}$/.test(String(signature || ""))) throw new ApiError(400, "bad_signature", "Send the 65-byte signature from your wallet.");
+    if (now() >= Number(p.chain.deadline) * 1000) throw new ApiError(400, "expired", "The quote expired before it was signed. Get a new quote.");
+    p.relaying = true; // lock before the first await: two requests can't both spend relayer gas
+    try {
+      const signer = await recoverTypedDataAddress({ ...forViem(p.chain.typedData), signature });
+      if (getAddress(signer) !== p.payer) throw new ApiError(400, "bad_signature", "That signature isn't from the paying wallet.");
+      const hash = await relayer.relay({ ...p.chain, payer: p.payer }, signature);
+      if (!store.claimTx(hash)) throw new ApiError(409, "tx_reused", "That transaction is already linked to a payment.");
+      p.txHash = hash.toLowerCase();
+      p.relayed = true;
+      transition(p, S.SUBMITTED, { txHash: p.txHash, relayed: true }, now());
+    } finally {
+      delete p.relaying;
+    }
+    save(p);
+    return refresh(id);
+  }
+
+  async function settleInr(p) {
+    // The INR leg goes through the off-ramp provider. Without an authorized one (today), it is a
+    // DEMO INR SETTLEMENT: no rupees move and no payout reference is invented.
+    let result;
+    try {
+      result = await offramp.payout(p);
+    } catch (e) {
+      result = { status: "failed", error: String(e.message || e).slice(0, 120) };
+    }
+    const leg = inrLeg(offramp, result);
+    p.payout = { ...leg, simulated: !leg.real, inrPaise: p.quote.inrPaise, to: p.upi.vpa };
+    if (leg.real && leg.status !== "settled") return save(p); // crypto confirmed; INR not (yet) settled
+    transition(p, S.PAYOUT_SIMULATED, { inr: leg.label }, now());
     transition(p, S.COMPLETED, {}, now());
-    return store.put(p);
+    return save(p);
   }
 
   function cancel(id) {
     const p = need(id);
     if (TERMINAL.has(p.state)) return p;
     transition(p, S.CANCELLED, { reason: "Cancelled by payer." }, now());
-    return store.put(p);
+    return save(p);
   }
 
-  return { create, risk, authorize, submit, refresh, cancel, get: need, feeBps: FEE_BPS };
+  return { create, risk, authorize, submit, relay, refresh, cancel, get: need, feeBps: FEE_BPS };
 }

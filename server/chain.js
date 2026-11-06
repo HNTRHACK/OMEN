@@ -33,6 +33,32 @@ export const CHECKOUT_ABI = [
   },
   { type: "function", name: "merchants", stateMutability: "view", inputs: [{ name: "", type: "bytes32" }], outputs: [{ name: "payout", type: "address" }, { name: "active", type: "bool" }] },
   { type: "function", name: "token", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  {
+    type: "function",
+    name: "payWithAuthorization",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "orderId", type: "bytes32" },
+      { name: "merchantId", type: "bytes32" },
+      { name: "amount", type: "uint256" },
+      { name: "inrPaise", type: "uint256" },
+      { name: "deadline", type: "uint256" },
+      { name: "payer", type: "address" },
+      { name: "v", type: "uint8" },
+      { name: "r", type: "bytes32" },
+      { name: "s", type: "bytes32" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "event",
+    name: "Refunded",
+    inputs: [
+      { name: "orderId", type: "bytes32", indexed: true },
+      { name: "payer", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
 ];
 
 let client;

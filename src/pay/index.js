@@ -43,9 +43,9 @@ async function api(path, body) {
 }
 
 const Badge = {
-  testnet: `<span class="badge real" title="A real transaction on Whitechain Sepolia testnet. Test tokens have no monetary value.">REAL TESTNET</span>`,
+  testnet: `<span class="badge real" title="A real transaction on Whitechain Sepolia testnet. Test tokens have no monetary value.">TESTNET CRYPTO</span>`,
   demo: `<span class="badge demo" title="Play money stored in this browser only. Nothing touches a blockchain.">DEMO</span>`,
-  sim: `<span class="badge sim" title="No INR payout partner is integrated. This leg is simulated.">SIMULATED INR</span>`,
+  sim: `<span class="badge sim" title="No authorized INR payout provider is integrated: rupees are a quoted equivalent only.">DEMO INR SETTLEMENT</span>`,
   arkiv: `<span class="badge arkiv" title="Read back from Arkiv (Rabdi testnet)">ON ARKIV</span>`,
 };
 const STEPS = [
@@ -351,11 +351,13 @@ export function initPay({ onStage = () => {}, onOpenChange = () => {} } = {}) {
       <div class="receipt ${done ? "paid" : "bad"}">
         <p class="big">${formatInr(p.quote.inrPaise)} <span>to ${esc(p.merchant?.name || p.upi.name || p.upi.vpa)}</span></p>
         <dl>
-          <dt>Mode</dt><dd>${p.mode === "testnet" ? Badge.testnet : Badge.demo}</dd>
           <dt>You paid</dt><dd>${esc(p.quote.tokenAmount)} ${esc(p.quote.token)} <small>(rate ₹${esc(p.quote.rate)}, fee ${formatInr(p.quote.feePaise)})</small></dd>
+          ${p.mode === "testnet" ? `<dt>Gas</dt><dd>${p.relayed ? "₹0 for you: paid by the merchant's relayer (you only signed)" : "paid in WBT by your wallet"}</dd>` : ""}
+          ${p.balance ? `<dt>Your USDT</dt><dd>${p.balance.before != null ? `${esc(p.balance.before)} → ` : ""}<b>${esc(p.balance.after)}</b> <small>read from Whitechain after settlement</small></dd>` : ""}
           ${p.txHash ? `<dt>Whitechain tx</dt><dd><a href="${txUrl(p.txHash)}" target="_blank" rel="noopener"><code>${short(p.txHash)}</code> ↗</a>${p.onchain ? ` <small>block ${esc(p.onchain.blockNumber)}, verified by the gateway</small>` : ""}</dd>` : ""}
           ${p.mode === "demo" ? `<dt>Settlement</dt><dd>DEMO credits, no blockchain transaction</dd>` : ""}
-          <dt>INR payout</dt><dd>${p.payout ? `${Badge.sim} <code>${esc(p.payout.ref)}</code> <small>${formatInr(p.payout.inrPaise)} to ${esc(p.payout.to)} — no real rupees moved</small>` : "—"}</dd>
+          <dt>Mode</dt><dd>${p.mode === "testnet" ? "<b>TESTNET CRYPTO PAYMENT</b>" : "<b>DEMO</b> (play credits)"}</dd>
+          <dt>INR</dt><dd>${p.payout ? (p.payout.real && p.payout.providerRef ? `Settled by provider, ref <code>${esc(p.payout.providerRef)}</code>` : `${Badge.sim} <small>${formatInr(p.payout.inrPaise)} is the quoted equivalent; no rupees moved and there is no bank reference</small>`) : "—"}</dd>
           <dt>Risk check</dt><dd>${riskSummary(p.risk)}</dd>
           ${ai?.requestId ? `<dt>0G request</dt><dd><code class="wrap">${esc(ai.requestId)}</code> <small>${esc(ai.provider || "")} ${esc(ai.model || "")}${ai.verified === true ? " · response verified" : ai.verified === false ? " · verification failed" : ""}</small></dd>` : ""}
           <dt>Order</dt><dd><code class="wrap">${esc(p.id)}</code></dd>
@@ -570,7 +572,10 @@ export function initPay({ onStage = () => {}, onOpenChange = () => {} } = {}) {
         <tr><td>Gateway fee (${(q.feeBps / 100).toFixed(2)}%)</td><td class="num">${formatInr(q.feePaise)}</td></tr>
         <tr><td>Total</td><td class="num">${formatInr(q.totalPaise)}</td></tr>
         <tr><td>Rate</td><td class="num">1 ${esc(q.token)} = ₹${esc(q.rate)} <small>${q.rateSource === "coingecko" ? "live · CoinGecko" : q.rateSource === "fixed-demo" ? "fixed demo rate" : "fixed fallback rate"}</small></td></tr>
-        ${p.mode === "testnet" ? `<tr><td>Network fee</td><td class="num">paid in WBT by your wallet <small>(testnet gas)</small></td></tr>` : ""}
+        ${p.mode === "testnet" ? `<tr><td>Network fee</td><td class="num">${cfg?.gasless?.enabled ? `<b>₹0 for you</b> <small>gas paid by the merchant's relayer</small>` : `paid in WBT by your wallet <small>(testnet gas)</small>`}</td></tr>` : ""}
+        <tr><td>Recipient</td><td class="num">${esc(p.merchant?.name || p.upi.name || p.upi.vpa)}${p.mode === "testnet" && cfg?.checkout ? ` <small>via checkout <a href="${WHITECHAIN.explorer}/address/${cfg.checkout}" target="_blank" rel="noopener">${short(cfg.checkout)}</a></small>` : ""}</td></tr>
+        <tr><td>Network</td><td class="num">${p.mode === "testnet" ? `Whitechain Sepolia <small>testnet · chain ${WHITECHAIN.id}</small>` : "None <small>(DEMO credits in this browser)</small>"}</td></tr>
+        <tr><td>Rate as of</td><td class="num">${new Date(q.rateAt || p.createdAt).toLocaleTimeString()} <small>${q.rateSource === "coingecko" ? "CoinGecko" : q.rateSource === "fixed-demo" ? "fixed" : "fallback"}</small></td></tr>
         <tr class="tot"><td>You pay</td><td class="num"><b>${esc(q.tokenAmount)} ${esc(q.token)}</b> ${p.mode === "testnet" ? Badge.testnet : Badge.demo}</td></tr>
       </tbody></table>
       ${q.rateNote ? `<p class="fine">${esc(q.rateNote)}</p>` : ""}
@@ -620,7 +625,21 @@ export function initPay({ onStage = () => {}, onOpenChange = () => {} } = {}) {
     try {
       let p = await api(`/payments/${p0.id}/authorize`, { payer: wallet.address || undefined, acknowledgeRisk: !!ack?.checked });
       co.payment = p;
-      if (p.mode === "testnet") {
+      if (p.mode === "testnet") co.balanceBefore = await wallet.usdtBalance().catch(() => null);
+      if (p.mode === "testnet" && p.chain.gasless) {
+        // Operate flow: one off-chain signature, no transaction, no gas for the payer.
+        settling("Sign the payment in your wallet. It's a signature, not a transaction: you pay no gas.");
+        const signature = await wallet.signAuthorization(cfg.checkout, p.chain.typedData, p.quote, p.chain.merchantKey);
+        onStage("settle", co);
+        settling("Signed. The merchant's relayer is settling it on Whitechain (it pays the gas)…");
+        p = await api(`/payments/${p.id}/relay`, { signature });
+        co.txHash = p.txHash;
+        for (let i = 0; i < 30 && p.state === "SUBMITTED"; i++) {
+          settling(`Gateway is verifying the receipt on Whitechain… <a href="${txUrl(p.txHash)}" target="_blank" rel="noopener">tx ${short(p.txHash)} ↗</a> ${esc(p.verifyNote || "")}`);
+          await new Promise((r) => setTimeout(r, 2000));
+          p = await api(`/payments/${p.id}`);
+        }
+      } else if (p.mode === "testnet") {
         settling("Waiting for your wallet…");
         const hash = await wallet.payCheckout(cfg.checkout, p.chain, (s, h) => {
           if (s === "approve") settling("Approve exactly this USDT amount in your wallet (1 of 2)…");
@@ -651,6 +670,11 @@ export function initPay({ onStage = () => {}, onOpenChange = () => {} } = {}) {
         }
       }
       co.payment = p;
+      // Step 8: the sender's real testnet balance, read back from the chain after settlement.
+      if (p.mode === "testnet" && p.state === "COMPLETED") {
+        const after = await wallet.usdtBalance().catch(() => null);
+        if (after != null) p.balance = { before: co.balanceBefore != null ? formatUnits(co.balanceBefore, 6) : null, after: formatUnits(after, 6) };
+      }
       remember(p);
       if (p.state === "COMPLETED") {
         onStage("payout", co);

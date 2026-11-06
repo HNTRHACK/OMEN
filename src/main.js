@@ -478,7 +478,7 @@ let coinAt = null;
 async function journey(stage, co) {
   const npc = npcOf(co);
   const p = co?.payment;
-  const tag = p?.mode === "testnet" ? `<span class="badge real">REAL TESTNET</span>` : p ? `<span class="badge demo">DEMO</span>` : "";
+  const tag = p?.mode === "testnet" ? `<span class="badge real">TESTNET CRYPTO</span>` : p ? `<span class="badge demo">DEMO</span>` : "";
   const who = p?.merchant?.name || co?.merchant?.name || "merchant";
   if (stage === "scan") {
     kai.talk = 0;
@@ -502,7 +502,7 @@ async function journey(stage, co) {
     await coin.fly(kai.local(0.3, 1.2, 0.3), at, { height: 5, duration: 1.3 });
     particles.burst(at, "spark", 40, 3); // `at`, not coinAt: the sheet may have closed meanwhile
   } else if (stage === "payout") {
-    payStatus(`${tag} <span class="badge sim">SIMULATED INR</span> Rupees on their way to ${who}…`);
+    payStatus(`${tag} <span class="badge sim">DEMO INR SETTLEMENT</span> Quoted rupee equivalent for ${who} (no rupees move)…`);
     const coin = new Envelope(scene);
     coin.mesh = makeCoin();
     relayFlash = Math.max(relayFlash, 1.4);
@@ -513,7 +513,7 @@ async function journey(stage, co) {
     kai.cheer = 0.8;
     particles.burst(npc.local(0, 2.1, 0.6), npc === maya ? "petal" : "spark", npc === maya ? 60 : 40, 4);
     const inr = p ? `₹${(p.quote.inrPaise / 100).toFixed(2)}` : "";
-    payStatus(`${tag} Paid ${inr} to ${who} · INR payout simulated`);
+    payStatus(`${tag} Paid ${who} · ${inr} quoted · DEMO INR SETTLEMENT`);
     const what = (p?.upi?.note || "").toLowerCase();
     ui.toast(npc === maya ? `Maya: “Paid! ${what ? `One ${what}` : "Your order"}, coming right up.”` : `Orin: “Received${what ? `: one ${what}` : ""}! Mind the cables on your way out.”`, 4200);
   } else if (stage === "fail") {

@@ -151,6 +151,46 @@ export const wallet = {
     return hash;
   },
 
+  /**
+   * Gasless checkout: sign the EIP-3009 authorization the gateway prepared. This is an off-chain
+   * signature, not a transaction: the payer spends no WBT. Before asking the wallet, check every
+   * term ourselves so a misbehaving server can't get anything else signed.
+   */
+  async signAuthorization(checkout, td, quote, merchantKey) {
+    await wallet.ensureChain(whitechain); // wallets require the domain's chain to be active
+    const m = td.message;
+    const same = (a, b) => getAddress(a) === getAddress(b);
+    if (td.primaryType !== "ReceiveWithAuthorization") throw new Error("Unexpected signature request. Nothing was signed.");
+    if (td.domain.chainId !== WHITECHAIN.id || !same(td.domain.verifyingContract, USDT.address) || td.domain.name !== "Tether USD")
+      throw new Error("The signature request isn't for Whitechain's official test USDT. Nothing was signed.");
+    if (!same(m.from, wallet.address)) throw new Error("The signature request is for another wallet. Nothing was signed.");
+    if (!same(m.to, checkout)) throw new Error("The signature request doesn't pay the checkout contract. Nothing was signed.");
+    if (m.value !== String(quote.tokenUnits)) throw new Error("The amount to sign differs from the quote. Nothing was signed.");
+    await wallet.checkCheckout(checkout, merchantKey);
+    return wallet.client().signTypedData({
+      account: wallet.address,
+      domain: td.domain,
+      types: td.types,
+      primaryType: td.primaryType,
+      message: { ...m, value: BigInt(m.value), validAfter: BigInt(m.validAfter), validBefore: BigInt(m.validBefore) },
+    });
+  },
+
+  /** On-chain check that `checkout` takes official test USDT and knows the merchant. */
+  async checkCheckout(checkout, merchantKey) {
+    const [token, [, active]] = await Promise.all([
+      wallet.pub.readContract({ address: checkout, abi: CHECKOUT_ABI, functionName: "token" }).catch(() => null),
+      merchantKey ? wallet.pub.readContract({ address: checkout, abi: CHECKOUT_ABI, functionName: "merchants", args: [merchantKey] }).catch(() => [null, false]) : [null, true],
+    ]);
+    if (!token || getAddress(token) !== getAddress(USDT.address)) throw new Error("The checkout contract doesn't accept the official test USDT. Refusing to sign anything.");
+    if (!active) throw new Error("This merchant isn't registered on the checkout contract. Nothing was signed.");
+  },
+
+  async usdtBalance() {
+    if (!wallet.address) return null;
+    return wallet.pub.readContract({ address: USDT.address, abi: erc20Abi, functionName: "balanceOf", args: [wallet.address] });
+  },
+
   /** Send WBT or USDT to another address on Whitechain Sepolia. */
   async transfer(token, to, amountText) {
     if (!isAddress(to)) throw new Error("That isn't a valid address.");

@@ -8,6 +8,7 @@ import { createPaymentService, ApiError } from "./payments.js";
 import { usdtInr } from "./rates.js";
 import { infer, zgStatus } from "./zerog.js";
 import { verifyPayment } from "./chain.js";
+import { createRelayer, relayerStatus } from "./relayer.js";
 import { MERCHANTS, merchantKey } from "../shared/merchants.js";
 import { WHITECHAIN, USDT } from "../shared/chains.js";
 import { FEE_BPS } from "../shared/money.js";
@@ -31,6 +32,7 @@ export function createApp({ service, publicConfig }) {
     ["POST", /^\/api\/payments\/([\w-]{36})\/risk$/, async ([id]) => service.risk(id)],
     ["POST", /^\/api\/payments\/([\w-]{36})\/authorize$/, async ([id], b) => service.authorize(id, b)],
     ["POST", /^\/api\/payments\/([\w-]{36})\/submit$/, async ([id], b) => service.submit(id, b)],
+    ["POST", /^\/api\/payments\/([\w-]{36})\/relay$/, async ([id], b) => service.relay(id, b)],
     ["POST", /^\/api\/payments\/([\w-]{36})\/cancel$/, async ([id]) => service.cancel(id)],
   ];
 
@@ -114,14 +116,18 @@ async function serveStatic(path, res) {
 // ------------------------------------------------------------------ start
 
 /** The real gateway (store, live rates, 0G, Whitechain verification) as a request handler. */
-export function createGateway() {
+export function createGateway({ onChange = () => {} } = {}) {
   const store = new Store(config.dataDir);
+  const relayer = createRelayer();
   const service = createPaymentService({
     store,
     rates: () => usdtInr(),
     infer: (m) => infer(m),
     verify: (p, h) => verifyPayment(p, h),
     checkoutConfigured: () => !!config.checkoutAddress,
+    checkoutAddress: () => config.checkoutAddress,
+    relayer,
+    onChange,
     quoteTtlMs: config.quoteTtlMs,
   });
   const publicConfig = () => ({
@@ -130,10 +136,15 @@ export function createGateway() {
     checkout: config.checkoutAddress,
     feeBps: FEE_BPS,
     zeroG: zgStatus(),
+    // Public by design: anyone can see which address pays the gas. Its key never leaves the server.
+    gasless: { enabled: relayerStatus().configured, relayer: relayer?.address || null },
     merchants: MERCHANTS.map((m) => ({ ...m, key: merchantKey(m.id) })),
     inrPayout: "simulated",
   });
-  return createApp({ service, publicConfig });
+  const app = createApp({ service, publicConfig });
+  app.service = service;
+  app.store = store;
+  return app;
 }
 
 export function logStatus(where) {
@@ -141,6 +152,7 @@ export function logStatus(where) {
   console.log(`OMEN gateway ${where}`);
   console.log(`  Whitechain checkout: ${config.checkoutAddress || "not configured (DEMO credits only)"}`);
   console.log(`  0G inference:       ${z.configured ? z.mode : "off (rules-only risk checks)"}`);
+  console.log(`  Gasless relayer:    ${relayerStatus().configured ? "on" : "off (set RELAYER_PRIVATE_KEY + CHECKOUT_ADDRESS)"}`);
 }
 
 export function start() {

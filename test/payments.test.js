@@ -57,7 +57,9 @@ test("happy path, testnet USDT: quote → risk → authorize → submit → veri
   assert.equal(p.state, S.COMPLETED);
   assert.equal(calls.verify, 1);
   assert.equal(p.payout.simulated, true);
-  assert.match(p.payout.label, /SIMULATED/);
+  assert.match(p.payout.label, /DEMO INR SETTLEMENT/);
+  assert.equal(p.payout.providerRef, null, "no bank/UTR reference is ever invented");
+  assert.equal(p.payout.ref, undefined);
   assert.match(p.onchain.explorer, /explorer\.testnet\.whitechain\.io\/tx\/0xabab/);
   assert.deepEqual(
     p.history.map((h) => h.to),
@@ -213,4 +215,119 @@ test("audit: demo and real paths can't be crossed", async () => {
   assert.equal(d.mode, "demo");
   assert.equal(d.txHash, null, "a DEMO payment never carries a chain tx");
   assert.equal(calls.verify, 0);
+});
+
+// ------------------------------------------------------------------ gasless (EIP-3009 relay)
+import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
+import { forViem } from "../shared/eip3009.js";
+
+const CHECKOUT = "0x9B137463d4E7986D7f535f9B79e28b4EF1938E9b";
+function gasless(over = {}) {
+  const sent = [];
+  const relayer = {
+    relay: async (c, sig) => {
+      sent.push({ c, sig });
+      await new Promise((r) => setTimeout(r, 20));
+      return "0x" + String(sent.length).padStart(64, "c");
+    },
+  };
+  return { ...setup({ relayer, checkoutAddress: () => CHECKOUT, ...over }), sent };
+}
+const signer = privateKeyToAccount(generatePrivateKey());
+const authorized = async (svc, who = signer.address) => svc.authorize((await svc.risk((await svc.create({ qr: QR, token: "USDT" })).id)).id, { payer: who });
+
+test("gasless: the payer signs typed data, the relayer settles, the payer sends no transaction", async () => {
+  const { svc, sent } = gasless();
+  let p = await authorized(svc);
+  assert.equal(p.chain.gasless, true);
+  const td = p.chain.typedData;
+  assert.equal(td.primaryType, "ReceiveWithAuthorization");
+  assert.equal(td.domain.name, "Tether USD");
+  assert.equal(td.domain.chainId, 1874);
+  assert.equal(td.message.to, CHECKOUT, "only the checkout can redeem it");
+  assert.equal(td.message.value, p.quote.tokenUnits, "exactly the quoted amount");
+  assert.equal(td.message.validBefore, p.chain.deadline);
+  const signature = await signer.signTypedData(forViem(td));
+  p = await svc.relay(p.id, { signature });
+  assert.equal(p.state, "COMPLETED");
+  assert.equal(p.relayed, true);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].c.payer, signer.address);
+});
+
+test("gasless: a signature from another wallet is refused before any gas is spent", async () => {
+  const { svc, sent } = gasless();
+  const p = await authorized(svc);
+  const other = privateKeyToAccount(generatePrivateKey());
+  await assert.rejects(svc.relay(p.id, { signature: await other.signTypedData(forViem(p.chain.typedData)) }), { code: "bad_signature" });
+  await assert.rejects(svc.relay(p.id, { signature: "0x1234" }), { code: "bad_signature" });
+  assert.equal(sent.length, 0);
+});
+
+test("gasless: signing different terms (tampered typed data) is refused", async () => {
+  const { svc, sent } = gasless();
+  const p = await authorized(svc);
+  const tampered = { ...p.chain.typedData, message: { ...p.chain.typedData.message, value: "1" } };
+  await assert.rejects(svc.relay(p.id, { signature: await signer.signTypedData(forViem(tampered)) }), { code: "bad_signature" });
+  assert.equal(sent.length, 0);
+});
+
+test("gasless: concurrent relay requests spend relayer gas once", async () => {
+  const { svc, sent } = gasless();
+  const p = await authorized(svc);
+  const signature = await signer.signTypedData(forViem(p.chain.typedData));
+  const results = await Promise.allSettled([svc.relay(p.id, { signature }), svc.relay(p.id, { signature })]);
+  assert.equal(sent.length, 1, "relayer called exactly once");
+  assert.ok(results.some((r) => r.status === "fulfilled" && r.value.state === "COMPLETED"));
+  assert.ok(results.some((r) => r.status === "rejected" && r.reason.code === "in_progress"));
+  // a later retry is idempotent
+  assert.equal((await svc.relay(p.id, { signature })).state, "COMPLETED");
+  assert.equal(sent.length, 1);
+});
+
+test("gasless: expired quote is refused; no relayer means a clear error", async () => {
+  const { svc, clock } = gasless();
+  const p = await authorized(svc);
+  const signature = await signer.signTypedData(forViem(p.chain.typedData));
+  clock.advance(121_000);
+  await assert.rejects(svc.relay(p.id, { signature }), { code: "expired" });
+  const plain = setup().svc; // no relayer configured
+  const q = await authorized(plain);
+  assert.equal(q.chain.gasless, false);
+  await assert.rejects(plain.relay(q.id, { signature }), { code: "relayer_off" });
+});
+
+test("gasless: listeners hear every state change", async () => {
+  const seen = [];
+  const { svc } = gasless({ onChange: (p) => seen.push(p.state) });
+  const p = await authorized(svc);
+  await svc.relay(p.id, { signature: await signer.signTypedData(forViem(p.chain.typedData)) });
+  assert.deepEqual([...new Set(seen)], ["QUOTED", "RISK_ASSESSED", "AWAITING_WALLET", "SUBMITTED", "COMPLETED"]);
+});
+
+test("gasless: JS nonce matches Solidity abi.encode (value pinned from Foundry's cast)", async () => {
+  const { authorizationNonce } = await import("../shared/eip3009.js");
+  const { merchantKey } = await import("../shared/merchants.js");
+  const n = authorizationNonce("0x9B137463d4E7986D7f535f9B79e28b4EF1938E9b", {
+    orderId: "0x" + "ab".repeat(32), merchantKey: merchantKey("maya-chai"), amount: "640293", inrPaise: "6000", deadline: "1800000120",
+  });
+  assert.equal(n, "0xbf3b2c2251b6e8d165f9386aab18809e038d814f04c9499c82c7c25df2415794");
+});
+
+test("off-ramp: a real provider must confirm before INR counts as settled", async () => {
+  const pending = { name: "acme-payouts", real: true, payout: async () => ({ status: "pending" }) };
+  let { svc } = setup({ offramp: pending });
+  let p = await svc.submit(svc.authorize((await svc.risk((await svc.create({ qr: QR, token: "DEMO" })).id)).id, {}).id, {});
+  assert.equal(p.state, "CONFIRMED", "crypto confirmed, INR not settled: the order is not completed");
+  assert.equal(p.payout.status, "pending");
+  const settled = { name: "acme-payouts", real: true, payout: async () => ({ status: "settled", providerRef: "ACME-123" }) };
+  ({ svc } = setup({ offramp: settled }));
+  p = await svc.submit(svc.authorize((await svc.risk((await svc.create({ qr: QR, token: "DEMO" })).id)).id, {}).id, {});
+  assert.equal(p.state, "COMPLETED");
+  assert.equal(p.payout.providerRef, "ACME-123", "only the provider's own reference is shown");
+  const liar = { name: "fake", real: false, payout: async () => ({ status: "settled", providerRef: "MADE-UP" }) };
+  ({ svc } = setup({ offramp: liar }));
+  p = await svc.submit(svc.authorize((await svc.risk((await svc.create({ qr: QR, token: "DEMO" })).id)).id, {}).id, {});
+  assert.equal(p.payout.real, false);
+  assert.equal(p.payout.providerRef, null, "a non-authorized provider can never mark INR settled");
 });

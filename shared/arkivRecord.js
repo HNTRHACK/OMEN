@@ -15,7 +15,7 @@ export const Record = defineSchema("omen.record.v1", {
   amount: str(),
   whitechainTx: str(),
   zgRequestId: str(),
-  payout: str(), // e.g. "SIMULATED SIM-ABC123"
+  payout: str(), // "DEMO INR SETTLEMENT", or a real payout provider's reference
   note: str(),
 });
 
@@ -77,7 +77,8 @@ export function paymentRecord(p) {
     amount: p.quote.tokenAmount,
     whitechainTx: p.txHash || "",
     zgRequestId: p.risk?.ai?.requestId || "",
-    payout: p.payout ? `SIMULATED ${p.payout.ref}` : "",
+    // Only a real provider's reference is ever recorded; demo settlements say so and nothing more.
+    payout: p.payout ? (p.payout.real && p.payout.providerRef ? `INR ${p.payout.providerRef}` : "DEMO INR SETTLEMENT") : "",
     note: known ? p.upi.note || p.merchant.name : "",
   };
 }

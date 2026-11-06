@@ -20,13 +20,13 @@ test("payment → record values validate through the real SDK constructors", () 
     quote: { inrPaise: 2000, token: "USDT", tokenAmount: "0.228978" },
     txHash: "0x" + "ab".repeat(32),
     risk: { ai: { requestId: "zg-req-1" } },
-    payout: { ref: "SIM-ABCDEF" },
+    payout: { real: false, providerRef: null },
   };
   const v = recordValues(paymentRecord(p));
   assert.equal(v.kind.value, "payment");
   assert.equal(v.createdAt.value, 1_762_400_000_000n);
   assert.equal(v.inrPaise.type, "u64");
-  assert.equal(v.payout.value, "SIMULATED SIM-ABCDEF");
+  assert.equal(v.payout.value, "DEMO INR SETTLEMENT", "no invented payout reference");
   assert.ok(new TextEncoder().encode(v.note.value).length <= 128);
 });
 
