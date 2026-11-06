@@ -778,6 +778,25 @@ export function initPay({ onStage = () => {}, onOpenChange = () => {} } = {}) {
     isOpen,
     openWallet,
     startCheckout,
+    /** Continue an already-quoted payment (a shop order or invoice) through review → approve → receipt. */
+    async checkoutPayment(payment) {
+      view = "checkout";
+      show();
+      await loadCfg();
+      if (payment.mode === "testnet" && !wallet.address) {
+        try {
+          await wallet.connect();
+        } catch (e) {
+          render(`<header class="pay-head"><h2 id="pay-h">Connect a wallet</h2><button class="x" data-act="close" aria-label="Close">×</button></header><p class="err">${esc(e.shortMessage || e.message)}</p><p class="fine">Testnet USDT is paid from your own wallet (one signature, no gas). DEMO credits need no wallet.</p>`);
+          bindActs({});
+          return;
+        }
+      }
+      co = { step: "review", payment, merchant: null, upi: payment.upi, sign: null };
+      onStage("quote", co);
+      remember(payment);
+      reviewQuote();
+    },
     close,
     /** Remember a story delivery so the player can write it to Arkiv. */
     logDelivery(d) {

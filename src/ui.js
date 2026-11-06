@@ -216,8 +216,8 @@ export function bindInput(input, { onAct, onOrbit }) {
     input.run = keys.has("shift");
   };
   addEventListener("keydown", (e) => {
-    if (e.target.closest?.("input, textarea, select, #pay, #coin-card")) return;
-    if (document.querySelector("#pay:not([hidden]), #coin-card:not([hidden])")) return; // an open sheet owns the keyboard
+    if (e.target.closest?.("input, textarea, select, #pay, #coin-card, #shop")) return;
+    if (document.querySelector("#pay:not([hidden]), #coin-card:not([hidden]), #shop:not([hidden])")) return; // an open sheet owns the keyboard
     const k = e.key.toLowerCase();
     if (ui.dialogueOpen()) return;
     if (k === "e" || k === "enter") return onAct();

@@ -98,6 +98,7 @@ export function createNet({ scene, camera, local, feed, onCount = () => {} }) {
   let room = null;
   let me = null;
   const remotes = new Map();
+  const handlers = [];
   let last = "";
   let sendT = 0;
   let beat = 0;
@@ -127,7 +128,7 @@ export function createNet({ scene, camera, local, feed, onCount = () => {} }) {
         const ids = new Set(res.players.map((p) => p.id));
         for (const [id, rm] of remotes) if (!ids.has(id)) (rm.remove(scene), remotes.delete(id));
         res.players.forEach(add);
-        if (!resumed) feed(res.players.length ? `You joined ${res.players.length} other courier${res.players.length > 1 ? "s" : ""} in room ${room}` : `Room ${room} is open. Share the invite link!`);
+        if (!resumed) feed(res.players.length ? `You joined ${res.players.length} other courier${res.players.length > 1 ? "s" : ""} in room ${room}` : room === "blockhaven" ? "You're the first courier in the public world right now." : `Room ${room} is open. Share the invite link!`);
         last = "";
         count();
       });
@@ -148,6 +149,7 @@ export function createNet({ scene, camera, local, feed, onCount = () => {} }) {
       count();
     });
     sock.on("state", (s) => remotes.get(s.id)?.push(s));
+    for (const [ev, fn] of handlers) sock.on(ev, fn); // app-level events (shops, forum, billboards)
     sock.on("look", (l) => remotes.get(l.id)?.setLook(l.name, l.look));
     sock.on("replaced", () => {
       feed("You opened OMEN in another tab, so this one went quiet.");
@@ -183,6 +185,18 @@ export function createNet({ scene, camera, local, feed, onCount = () => {} }) {
     /** Tell the room about a new look (avatar edits). */
     setLook(look) {
       if (sock?.connected) sock.emit("look", look);
+    },
+    /** Listen for a server event; survives reconnects and rejoins. */
+    on(ev, fn) {
+      handlers.push([ev, fn]);
+      sock?.on(ev, fn);
+    },
+    emit(ev, data, ack) {
+      if (sock?.connected) sock.emit(ev, data, ack);
+      else ack?.({ error: "Not connected." });
+    },
+    get connected() {
+      return !!sock?.connected;
     },
     act(kind, target = "") {
       if (sock?.connected) sock.emit("act", { kind, target });

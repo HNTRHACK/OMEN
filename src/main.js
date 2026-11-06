@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { P, R } from "./palette.js";
 import { loadAll } from "./assets.js";
 import { buildWorld } from "./world.js";
-import { mapDir, tangentToward } from "./planet.js";
+import { mapDir, tangentToward, placeMap } from "./planet.js";
 import { SPOTS } from "./layout.js";
 import { Character } from "./character.js";
 import { applyLook, syncPet } from "./avatar.js";
@@ -15,7 +15,9 @@ import { InkPass } from "./post.js";
 import { Envelope, Particles, Smoke, Birds, flying } from "./fx.js";
 import { ui, bindInput, clearHeldKeys } from "./ui.js";
 import { audio } from "./audio.js";
-import { toon } from "./assets.js";
+import { toon, model } from "./assets.js";
+import { createShops } from "./shop.js";
+import { PLOTS, SHOP_COLORS } from "../shared/storefronts.js";
 import { initPay } from "./pay/index.js";
 import { createPerf } from "./perf.js";
 import "./style.css";
@@ -463,6 +465,94 @@ function qrSign(merchantId, building, local, faceLocal) {
 qrSign("maya-chai", W.hero.chai, new THREE.Vector3(2.35, 0, 3.6), new THREE.Vector3(2.35, 0, 12));
 qrSign("orin-relay", W.hero.workshop, new THREE.Vector3(3.3, 0, 4.2), new THREE.Vector3(3.3, 0, 12));
 
+// ------------------------------------------------------------------ storefronts players can claim
+
+function signTexture(shop, label) {
+  const c = document.createElement("canvas");
+  c.width = 512;
+  c.height = 256;
+  const g = c.getContext("2d");
+  g.fillStyle = "#fbf3e4";
+  g.fillRect(0, 0, 512, 256);
+  g.fillStyle = shop ? "#" + SHOP_COLORS[shop.color].toString(16).padStart(6, "0") : "#d8c9ae";
+  for (let x = 0; x < 512; x += 64) g.fillRect(x, 0, 32, 44); // awning stripes
+  g.strokeStyle = "#2b2230";
+  g.lineWidth = 10;
+  g.strokeRect(5, 5, 502, 246);
+  g.fillStyle = "#2b2230";
+  g.textAlign = "center";
+  g.font = "800 58px 'Bricolage Grotesque', system-ui, sans-serif";
+  const fit = (t, size) => {
+    let f = size;
+    do g.font = `800 ${f}px 'Bricolage Grotesque', system-ui, sans-serif`;
+    while (g.measureText(t).width > 470 && (f -= 4) > 20);
+  };
+  if (shop) {
+    fit(shop.name, 60);
+    g.fillText(shop.name, 256, 128);
+    g.font = "32px 'Patrick Hand', cursive";
+    g.fillText((shop.tagline || `run by ${shop.ownerName}`).slice(0, 34), 256, 190);
+  } else {
+    fit("FOR RENT", 72);
+    g.fillText("FOR RENT", 256, 134);
+    g.font = "34px 'Patrick Hand', cursive";
+    g.fillText(`${label}: claim it, sell here`, 256, 196);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+// The plaza's relay lantern is solid: the camera pulls in before it instead of looking through its
+// pole (stalls face the plaza, which put the camera right behind it).
+{
+  let relayRoot = W.crystal;
+  while (relayRoot.parent && relayRoot.parent !== scene) relayRoot = relayRoot.parent;
+  if (!W.camBlockers.includes(relayRoot)) W.camBlockers.push(relayRoot);
+}
+const stalls = {};
+for (const pl of PLOTS) {
+  if (!pl.existing) {
+    const m = model("market_stall");
+    placeMap(m, pl.at[0], pl.at[1], pl.face[0], pl.face[1]);
+    m.traverse((o) => o.isMesh && ((o.castShadow = true), (o.receiveShadow = true)));
+    scene.add(m);
+    W.colliders.push({ dir: mapDir(pl.at[0], pl.at[1]), r: 1.4 });
+  }
+  // a hanging sign in front of the stall, facing the lane
+  const g = new THREE.Group();
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 2.3, 8), toon(P.wood));
+  post.position.set(-0.95, 1.15, 0);
+  const post2 = post.clone();
+  post2.position.x = 0.95;
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.95), new THREE.MeshBasicMaterial({ map: signTexture(null, pl.label) }));
+  board.position.set(0, 1.85, 0.02);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(1.98, 1.03, 0.05), toon(P.wood));
+  back.position.set(0, 1.85, -0.02);
+  g.add(post, post2, back, board);
+  const at = mapDir(pl.at[0], pl.at[1]);
+  const toward = mapDir(pl.face[0], pl.face[1]);
+  const fwd = tangentToward(at, toward);
+  const spot = at.clone().multiplyScalar(R).addScaledVector(fwd, 2.3);
+  g.position.copy(spot);
+  g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3().crossVectors(at, fwd), at, fwd));
+  scene.add(g);
+  W.colliders.push({ dir: spot.clone().normalize(), r: 0.3 });
+  stalls[pl.id] = { plot: pl, group: g, board, shop: null, front: () => g.localToWorld(new THREE.Vector3(0, 0, 1.2)), top: () => g.localToWorld(new THREE.Vector3(0, 2.6, 0)), local: (x, y, z) => g.localToWorld(new THREE.Vector3(x, y + 1.2, z)) };
+}
+function paintStalls(data) {
+  for (const p of data.plots) {
+    const st = stalls[p.plot];
+    if (!st) continue;
+    const key = JSON.stringify(p.shop ? [p.shop.name, p.shop.tagline, p.shop.color] : null);
+    if (st.key === key) continue;
+    st.key = key;
+    st.shop = p.shop;
+    st.board.material.map?.dispose();
+    st.board.material.map = signTexture(p.shop, st.plot.label);
+    st.board.material.needsUpdate = true;
+  }
+}
+
 function startScan(merchantId) {
   net.act("scan", merchantId);
   const s = signs[merchantId];
@@ -492,7 +582,13 @@ function makeCoin() {
   g.scale.setScalar(1.4);
   return g;
 }
-const npcOf = (co) => (co?.payment?.merchant?.npc === "orin" || co?.merchant?.npc === "orin" ? orin : maya);
+// Who the payment coin flies to: Orin, Maya, or a player's stall sign (which can't cheer, harmlessly).
+const npcOf = (co) => {
+  const m = co?.payment?.merchant || co?.merchant;
+  if (m?.npc === "orin") return orin;
+  if (m?.npc === "maya" || !m) return maya;
+  return stalls[m.id] || maya;
+};
 const crystalPos = () => W.crystal.getWorldPosition(new THREE.Vector3());
 let relayFlash = 0; // seconds the relay crystal glows for a payment (visual only, story state untouched)
 let coinAt = null;
@@ -609,6 +705,16 @@ const talkables = [
   { label: "Read the notice board", at: () => boardPos.clone().add(new THREE.Vector3()), head: () => boardPos.clone().addScaledVector(boardPos.clone().normalize(), 2.2), run: readBoard, range: 2.2 },
   { label: "Scan Maya's QR to pay", at: () => signs["maya-chai"].front(), head: () => signs["maya-chai"].top(), run: async () => startScan("maya-chai"), range: 1.8 },
   { label: "Scan Orin's QR to pay", at: () => signs["orin-relay"].front(), head: () => signs["orin-relay"].top(), run: async () => startScan("orin-relay"), range: 1.8 },
+  ...PLOTS.map((pl) => ({
+    get label() {
+      const st = stalls[pl.id];
+      return !st.shop ? "Claim this stall" : st.shop.owner === shops.mine?.owner ? "Manage your stall" : `Browse ${st.shop.name}`;
+    },
+    at: () => stalls[pl.id].front(),
+    head: () => stalls[pl.id].top(),
+    run: async () => shops.openPlot(pl.id),
+    range: 2.2,
+  })),
   ...[0, 1, 2, 3, 4, 5].map((i) => ({
     get label() {
       const it = coins.items[i];
@@ -748,13 +854,13 @@ async function beginPlay(fresh) {
   mover.enabled = true;
   save();
   pill.hidden = false; // solo players need the Invite button too
-  placeCoins(courier.room || "blockhaven"); // same room → same coins for everyone
-  if (courier.room) joinRoom(courier.room);
-  else pill.querySelector(".count").textContent = "Solo";
+  // Everyone shares the public world unless they made a private room with friends.
+  joinRoom(courier.room || PUBLIC_ROOM);
 }
 
 // ------------------------------------------------------------------ multiplayer
 
+const PUBLIC_ROOM = "blockhaven";
 const courier = { name: "", look: { ...DEFAULT_LOOK }, room: roomFromUrl() };
 const kaiPet = {}; // holds KAI's pet (see avatar.js syncPet)
 try {
@@ -801,10 +907,37 @@ const net = createNet({
     pill.hidden = false;
     pill.classList.toggle("on", connected);
     pill.querySelector(".count").textContent = room ? `${online} online` : "Solo";
-    pill.querySelector(".room").textContent = room ? `· ${room}` : "";
+    pill.querySelector(".room").textContent = room === PUBLIC_ROOM ? "· public world" : room ? `· ${room}` : "";
   },
 });
+// ------------------------------------------------------------------ the market (player shops, B2B)
+
+const shops = createShops({
+  net,
+  pay,
+  toast: (t, ms) => ui.toast(t, ms),
+  feed,
+  chime: () => audio.chime([0, 7, 12], 0.08),
+  myName: () => courier.name || "Courier",
+  onOpenChange(open) {
+    clearHeldKeys();
+    busy = open;
+    mover.enabled = !open && mode === "play";
+    input.x = input.y = 0;
+  },
+  onShops: paintStalls,
+});
+const marketBtn = Object.assign(document.createElement("button"), { id: "market-btn", type: "button" });
+marketBtn.setAttribute("aria-label", "Open the market (M)");
+marketBtn.innerHTML = `<svg viewBox="0 0 48 40" aria-hidden="true"><path d="M5 15h38l-3-9H8z" fill="#B85C4A" stroke="#2B2230" stroke-width="2.6" stroke-linejoin="round"/><path d="M5 15c0 4 6 4 6 0 0 4 7 4 7 0 0 4 6 4 6 0 0 4 7 4 7 0 0 4 6 4 6 0 0 4 6 4 6 0" fill="#FBF3E4" stroke="#2B2230" stroke-width="2.4"/><rect x="9" y="20" width="30" height="16" fill="#F3D98B" stroke="#2B2230" stroke-width="2.6"/><rect x="20" y="25" width="8" height="11" fill="#8A5A3B" stroke="#2B2230" stroke-width="2.2"/></svg><span>Market</span>`;
+marketBtn.onclick = () => !busy && shops.openDirectory();
+document.getElementById("hud").append(marketBtn);
+addEventListener("keydown", (e) => {
+  if ((e.key === "m" || e.key === "M") && mode === "play" && !busy && !ui.dialogueOpen() && !e.target.closest?.("input, textarea, select")) shops.openDirectory();
+});
+
 function joinRoom(room) {
+  shops.refresh();
   if (coins.seed !== room) placeCoins(room);
   net.join({ room, name: courier.name || "Courier", look: courier.look });
 }
@@ -1051,6 +1184,8 @@ window.__omen = {
   coins,
   coinCard,
   perf,
+  stalls,
+  shops,
   get mode() {
     return mode;
   },

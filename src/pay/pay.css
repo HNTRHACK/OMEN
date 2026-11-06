@@ -122,3 +122,29 @@ details summary { cursor: pointer; margin-top: 8px; color: var(--teal); }
   .journey li { font-size: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { .pay-sheet, .journey li.now, .spinner, #wallet-btn.bump { animation: none; } }
+
+/* ---------- market (player shops) ---------- */
+#shop { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 12px; user-select: text; touch-action: auto; }
+#market-btn { position: fixed; right: 176px; bottom: max(18px, env(safe-area-inset-bottom)); z-index: 5; display: grid; justify-items: center; background: none; border: 0; cursor: pointer; padding: 0; filter: drop-shadow(3px 4px 0 var(--ink)); }
+#market-btn svg { width: 56px; }
+#market-btn span { font-family: var(--display); font-weight: 800; font-size: 12px; background: var(--paper); border: 2px solid var(--ink); border-radius: 6px; padding: 0 6px; margin-top: -2px; }
+@media (pointer: coarse) { #market-btn { right: 92px; bottom: 290px; } }
+.shop-tag { margin: 0 0 8px; padding: 6px 12px; border: 2.5px solid var(--ink); border-left: 12px solid var(--c); border-radius: 10px; background: #fffaf0; }
+.shop-tag small { display: block; color: var(--muted); font-size: 14px; }
+.catalog { list-style: none; margin: 0; padding: 0; }
+.catalog li { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1.5px dashed #d8c9ae; }
+.catalog.own li { grid-template-columns: 1fr auto auto; }
+.catalog small { display: block; color: var(--muted); font-size: 14px; }
+.qty { display: inline-flex; align-items: center; gap: 6px; }
+.qty button { width: 30px; height: 30px; border-radius: 50%; border: 2.5px solid var(--ink); background: var(--paper-2); font-weight: 800; cursor: pointer; }
+.qty button:disabled { opacity: 0.4; cursor: not-allowed; }
+.qty b { min-width: 1.4em; text-align: center; }
+.basket { display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px; padding-top: 8px; border-top: 2.5px solid var(--ink); font-size: 20px; }
+.basket b { font-family: var(--display); font-size: 24px; }
+.btn small { font-family: var(--hand); font-weight: 400; font-size: 14px; }
+.form.inline { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; align-items: end; }
+.sw-pick input { position: absolute; opacity: 0; }
+.sw-pick span { display: inline-block; width: 30px; height: 30px; border-radius: 50%; border: 2.5px solid var(--ink); cursor: pointer; }
+.sw-pick input:checked + span { outline: 3px solid var(--ink); outline-offset: 2px; }
+.sw-pick input:focus-visible + span { outline: 3px solid var(--teal); }
+@media (max-width: 520px) { .form.inline { grid-template-columns: 1fr 1fr; } .catalog li { grid-template-columns: 1fr auto; } }
