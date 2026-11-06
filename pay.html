@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2B2230">
+  <title>OMEN Pay · BTC → INR (simulated)</title>
+  <meta name="description" content="Two-phone demo: pay with DEMO bitcoin, the shop receives DEMO rupees. Simulated settlement on OMEN's demo ledger.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Patrick+Hand&display=swap" rel="stylesheet">
+</head>
+<body class="omenpay">
+  <header class="pay-top">
+    <a class="brand" href="#/">OMEN <b>Pay</b></a>
+    <span id="conn" class="conn" aria-live="polite"></span>
+  </header>
+  <p class="sim" role="note"><span class="sim-dot" aria-hidden="true"></span><span id="label">SIMULATED BTC → INR SETTLEMENT</span><small>Demo balances · no real bitcoin or rupees</small></p>
+  <main id="app" aria-live="polite"></main>
+  <div id="toast" class="pay-toast" hidden role="status"></div>
+  <script type="module" src="/src/btcinr/app.js"></script>
+</body>
+</html>

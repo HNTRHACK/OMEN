@@ -23,6 +23,6 @@ export default defineConfig({
     target: "es2022",
     chunkSizeWarningLimit: 1500,
     // pages: the game, a merchant's ledger (its own device), moderation, and the Mumbai venue
-    rollupOptions: { input: { main: "index.html", merchant: "merchant.html", moderate: "moderate.html", expo: "expo.html" } },
+    rollupOptions: { input: { main: "index.html", merchant: "merchant.html", moderate: "moderate.html", expo: "expo.html", pay: "pay.html" } },
   },
 });
