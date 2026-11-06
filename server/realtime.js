@@ -12,6 +12,7 @@ import { merchantById } from "../shared/merchants.js";
 import { cleanLook, lookFromOutfit } from "../shared/look.js";
 import { playerIdOf, TOKEN_RE, ID_RE } from "./identity.js";
 import { moderateText } from "./moderation.js";
+import { attachBtcInr } from './btcinr-realtime.js';
 
 export const ROOM_RE = /^[a-z0-9][a-z0-9-]{2,23}$/;
 export const OUTFITS = 6;
@@ -106,9 +107,11 @@ export function merchantView(p) {
   };
 }
 
-export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), isMuted = () => false, worldIdentity = null } = {}) {
+export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), isMuted = () => false, worldIdentity = null, btcinr = null } = {}) {
   const chatLog = new Map(); // room → last messages, for players who arrive mid-conversation
   const io = new Server(httpServer, { serveClient: false, maxHttpBufferSize: 4096, pingInterval: 10_000, pingTimeout: 8_000 });
+  const closeBtcInr = btcinr ? attachBtcInr(io, btcinr) : null;
+  if (closeBtcInr) httpServer.once('close', closeBtcInr);
   const rooms = new Map(); // room → Map(playerId → player)
   const ghosts = new Map(); // playerId → { room, timer } (disconnected, may come back)
 

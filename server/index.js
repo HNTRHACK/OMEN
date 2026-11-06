@@ -19,6 +19,7 @@ import { serveUpload, normalizeImage } from "./images.js";
 import { createDatabase } from './postgres.js';
 import { createAuth } from './auth.js';
 import { createWorldIdentity } from './world-identity.js';
+import { createBtcInr } from './btcinr.js';
 import { createAlfred } from "./alfred.js";
 import { MERCHANTS, merchantKey } from "../shared/merchants.js";
 import { WHITECHAIN, USDT } from "../shared/chains.js";
@@ -34,7 +35,7 @@ export function toCsv(rows) {
   return [CSV_COLS.join(","), ...rows.map((r) => CSV_COLS.map((c) => csvCell(c === "createdAt" ? new Date(r.createdAt).toISOString() : r[c])).join(","))].join("\n") + "\n";
 }
 
-export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys(), market = createMarket(), commerce = null, community = null, alfred = null, database = null, auth = null, worldIdentity = null }) {
+export function createApp({ service, publicConfig, store = null, merchantAccess = merchantKeys(), market = createMarket(), commerce = null, community = null, alfred = null, database = null, auth = null, worldIdentity = null, btcinr = null }) {
   const name = (b) => String(b?.name || "").slice(0, 16);
   /** The caller's player id if they sent a valid guest token, else null (moderator-only pages send none). */
   const optionalPlayer = (req) => {
@@ -63,6 +64,22 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
   };
 
   const routes = [
+    ...(btcinr ? [
+      ['GET', /^\/api\/btcinr\/rate$/, async () => btcinr.rate(), { external: true }],
+      ['GET', /^\/api\/btcinr\/customer$/, async (_, b, req) => btcinr.getCustomer(req), { external: true }],
+      ['POST', /^\/api\/btcinr\/customer$/, async (_, b, req) => btcinr.registerCustomer(req, b), { external: true }],
+      ['POST', /^\/api\/btcinr\/merchants$/, async (_, b, req) => btcinr.registerMerchant(req, b), { external: true }],
+      ['POST', /^\/api\/btcinr\/merchant\/session$/, async (_, b, req) => btcinr.loginMerchant(req, b), { external: true }],
+      ['DELETE', /^\/api\/btcinr\/merchant\/session$/, async (_, b, req) => btcinr.logoutMerchant(req), { external: true }],
+      ['POST', /^\/api\/btcinr\/merchant\/recover$/, async (_, b, req) => btcinr.recoverMerchant(req), { external: true }],
+      ['GET', /^\/api\/btcinr\/merchant$/, async (_, b, req) => btcinr.getMerchant(req), { external: true }],
+      ['POST', /^\/api\/btcinr\/merchant\/requests$/, async (_, b, req) => btcinr.createRequest(req, b), { external: true }],
+      ['GET', /^\/api\/btcinr\/requests\/([A-Za-z0-9_-]{6,64})$/, async ([code], b, req) => btcinr.getRequest(req, code), { external: true }],
+      ['POST', /^\/api\/btcinr\/quotes$/, async (_, b, req) => btcinr.createQuote(req, b), { external: true }],
+      ['POST', /^\/api\/btcinr\/payments$/, async (_, b, req) => btcinr.pay(req, b), { external: true }],
+      ['GET', /^\/api\/btcinr\/payments$/, async (_, b, req, url) => btcinr.history(req, url.searchParams), { external: true }],
+      ['GET', /^\/api\/btcinr\/payments\/(pay_[a-f0-9]{32})$/, async ([id], b, req) => btcinr.getPayment(req, id), { external: true }],
+    ] : []),
     ...(worldIdentity ? [
       ['GET', /^\/api\/auth\/world\/status$/, async () => worldIdentity.status(), { external: true }],
       ['POST', /^\/api\/auth\/world\/start$/, async (_, b, req) => worldIdentity.start(req, b), { external: true }],
@@ -167,7 +184,7 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
         ...(cookie || mediaCookie ? { 'set-cookie': [cookie, mediaCookie].flat().filter(Boolean) } : {}),
         ...(config.allowedOrigin ? { "access-control-allow-origin": config.allowedOrigin, vary: "origin" } : {}),
       });
-      res.end(JSON.stringify(body));
+      res.end(status === 204 ? undefined : JSON.stringify(body));
     };
     if (url.pathname.startsWith('/uploads/') && database) {
       try {
@@ -194,13 +211,13 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
     if (url.pathname.startsWith("/uploads/")) return serveUpload(community?.uploadsDir, url.pathname.slice(9), res);
     if (!url.pathname.startsWith("/api/")) return serveStatic(url.pathname, res);
     if (req.method === "OPTIONS" && config.allowedOrigin) {
-      res.writeHead(204, { "access-control-allow-origin": config.allowedOrigin, "access-control-allow-methods": "GET,POST", "access-control-allow-headers": "content-type,authorization,x-omen-token,x-omen-session,x-mod-key", vary: 'origin' });
+      res.writeHead(204, { "access-control-allow-origin": config.allowedOrigin, "access-control-allow-methods": "GET,POST,DELETE", "access-control-allow-headers": "content-type,authorization,x-omen-token,x-omen-session,x-mod-key,idempotency-key", vary: 'origin' });
       return res.end();
     }
     if (limited(clientIp(req))) return send(429, { error: "rate_limited", message: "Too many requests. Slow down a little." });
     try {
       req.omenClientIp = clientIp(req);
-      if (req.method === 'POST' && req.headers.origin) {
+      if (['POST', 'DELETE'].includes(req.method) && req.headers.origin) {
         let origin;
         try { origin = new URL(req.headers.origin); } catch { throw new ApiError(403, 'bad_origin', 'This origin is not allowed.'); }
         if (!['http:', 'https:'].includes(origin.protocol) || (origin.host !== req.headers.host && origin.origin !== config.allowedOrigin)) throw new ApiError(403, 'bad_origin', 'This origin is not allowed.');
@@ -240,7 +257,9 @@ export function createApp({ service, publicConfig, store = null, merchantAccess 
           res.writeHead(200, { "content-type": out.__raw.type, "content-disposition": `attachment; filename="${out.__raw.name}"`, "cache-control": "no-store", "x-content-type-options": "nosniff" });
           return res.end(out.__raw.body);
         }
-        return send(200, out);
+        const status = out?.__status || 200;
+        if (out && Object.hasOwn(out, '__status')) delete out.__status;
+        return send(status, out);
       }
       send(404, { error: "not_found", message: "No such endpoint." });
     } catch (e) {
@@ -303,7 +322,7 @@ async function serveStatic(path, res) {
 // ------------------------------------------------------------------ start
 
 /** The real gateway (store, live rates, 0G, Whitechain verification) as a request handler. */
-export function createGateway({ onChange = () => {}, notify = { player() {}, all() {} }, database = createDatabase(config.databaseUrl), legacyDir = config.dataDir, worldIdentity = createWorldIdentity(database, config.worldId) } = {}) {
+export function createGateway({ onChange = () => {}, notify = { player() {}, all() {} }, database = createDatabase(config.databaseUrl), legacyDir = config.dataDir, worldIdentity = createWorldIdentity(database, config.worldId), btcinr = createBtcInr(database, { worldIdentity }) } = {}) {
   const store = new Store(null, { database });
   const liveNotify = notify;
   notify = Object.fromEntries(['player', 'all'].map((method) => [method, (...args) => {
@@ -356,7 +375,7 @@ export function createGateway({ onChange = () => {}, notify = { player() {}, all
     inrPayout: "simulated",
   });
   const alfred = createAlfred({ zgInfer: zgStatus().configured ? (m) => infer(m) : null });
-  const handle = createApp({ service, publicConfig, store, commerce, community, alfred, database, auth: createAuth(database), worldIdentity });
+  const handle = createApp({ service, publicConfig, store, commerce, community, alfred, database, auth: createAuth(database), worldIdentity, btcinr });
   const ready = database.verifyReady(legacyDir);
   ready.catch(() => {}); // start() or the request handler reports startup failures
   const app = async (req, res) => {
@@ -370,10 +389,12 @@ export function createGateway({ onChange = () => {}, notify = { player() {}, all
   community.muted = (id) => database.transaction(() => muted(id));
   app.community = community;
   community.worldIdentity = worldIdentity; // Vite's existing notifier call can discover the backend identity service
+  community.btcinr = btcinr;
   app.service = service;
   app.store = store;
   app.database = database;
   app.worldIdentity = worldIdentity;
+  app.btcinr = btcinr;
   app.close = async () => { clearInterval(sweeper); await database.close(); };
   return app;
 }
@@ -393,7 +414,7 @@ export function createNotifier() {
   let rt = null;
   return {
     webhooks,
-    attach: (httpServer, community, database, worldIdentity = community?.worldIdentity) => (rt = attachRealtime(httpServer, { worldIdentity, isMuted: (id) => database ? database.transaction(() => community?.muted(id)) : community?.muted(id) })),
+    attach: (httpServer, community, database, worldIdentity = community?.worldIdentity) => (rt = attachRealtime(httpServer, { worldIdentity, btcinr: community?.btcinr, isMuted: (id) => database ? database.transaction(() => community?.muted(id)) : community?.muted(id) })),
     notify: { player: (id, ev, d) => rt?.toPlayer(id, ev, d), all: (ev, d) => rt?.toAll(ev, d) },
     onChange: (p) => {
       rt?.notifyPayment(p);

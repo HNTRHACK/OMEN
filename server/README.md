@@ -1,4 +1,19 @@
-# Backend milestone B1
+# Backend milestones B1 and B2
+
+B2 adds the two-account **SIMULATED BTC→INR SETTLEMENT** journey with a PostgreSQL
+double-entry ledger, exact integer quotes, idempotent confirmation, immutable receipts
+and a durable notification outbox. Its implemented frontend API contract is
+[CONTRACT-BTCINR.md](CONTRACT-BTCINR.md), with verification and handoff in
+[B2-VERIFICATION.md](B2-VERIFICATION.md). Existing World ID, advertising, Whitechain
+and Arkiv paths retain their contracts. B2 never submits a Bitcoin or bank transfer.
+
+Apply additive migration `003_btcinr_demo_ledger.sql` with
+`node server/manage.js migrate` before starting B2. Do not edit an applied migration.
+For deterministic demos, optionally set `BTCINR_DEMO_INR_PER_BTC=5734210.55`;
+otherwise the backend requests BTC/INR from CoinGecko and rejects unusable rates.
+No extra dependency or real-funds key is required. Use distinct player identities for
+customer and merchant sign-up, then the separate merchant session on Phone B.
+Customers receive 1,000,000 DEMO satoshis once, with a ₹10,000 per-payment cap.
 
 World ID identity, sessions, recovery and persistent avatar ownership are documented in
 [WORLD-ID.md](WORLD-ID.md). Claude's avatar creator API contract is
@@ -8,7 +23,7 @@ The gateway now requires PostgreSQL 16 or newer. All operational collections, ca
 uploads, moderator accounts, sessions and moderation decisions persist in PostgreSQL. The original
 JSON adapters remain only for existing isolated domain tests; `createGateway()` never writes JSON.
 Browser guest tokens and the advertisement request/response shapes are unchanged. Browser-only demo
-balances are not server accounts and are outside B1; the two-phone ledger is a later milestone.
+balances are not server accounts and are outside B1; B2 uses separate server-owned DEMO accounts.
 
 ## Install and cut over
 
@@ -147,8 +162,12 @@ measure before scaling, then move to per-board/per-account SQL operations plus a
 adapter/outbox. Do not increase `numInstances` without those changes. Lock timeout is 10 seconds,
 statement timeout 30 seconds, pool size eight; database errors roll back and return 5xx.
 
-Production blockchain submission/reconciliation and the two-phone ledger require their own
-milestone; B1 verification uses DEMO payments and existing mocked chain tests only.
+Production blockchain submission/reconciliation remains outside these milestones.
+B2 uses SQL row locks and transactions without rewriting B1's economy snapshot model.
+Immutable journals and deferred constraints reject partial or unbalanced postings.
+Receipts and idempotency keys are retained indefinitely. The `/btcinr` outbox drains
+at startup, on new events and every second. Clients resync missed packets through
+account/history reads. Delivery semantics and limits are in the B2 contract.
 
 ## Environment and deployment
 
@@ -166,6 +185,7 @@ milestone; B1 verification uses DEMO payments and existing mocked chain tests on
 | `ZG_*`, `ANTHROPIC_API_KEY`, `RATE_URL`, `FALLBACK_USDT_INR`, `COINGECKO_API_KEY` | Existing optional inference/rates; do not expose private keys to the browser. |
 | `MERCHANT_KEYS`, `WEBHOOKS`, `WEBHOOK_SECRET` | Existing merchant access/notification configuration. |
 | `TEST_DATABASE_URL` | Required only for backend integration tests. Use a disposable database with CREATE SCHEMA permission. Never point it at production. |
+| `BTCINR_DEMO_INR_PER_BTC` | Optional explicit BTC/INR demo reference rate, e.g. `5734210.55`; source is labelled `configured-demo`. Empty uses CoinGecko with no automatic fallback. |
 
 Docker installs the separate locked server dependencies. The Render blueprint retains one instance
 and requires an operator-supplied `DATABASE_URL`; provision PostgreSQL and run migrate/import before
