@@ -42,7 +42,7 @@ export class Mover {
   update(dt, input, camFwd) {
     const up = this.dir;
     const camF = project(camFwd.clone(), up).normalize();
-    const camR = new THREE.Vector3().crossVectors(up, camF);
+    const camR = new THREE.Vector3().crossVectors(camF, up);
     let mx = this.enabled ? input.x : 0;
     let my = this.enabled ? input.y : 0;
     const mag = Math.min(1, Math.hypot(mx, my));

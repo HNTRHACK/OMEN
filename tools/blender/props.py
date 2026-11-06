@@ -51,7 +51,7 @@ def smooth(o):
 
 def tree_round():
     reset()
-    cyl(0.16, 1.6, (0, 0, 0.8), "wood", verts=8, r2=0.11)
+    cyl(0.16, 1.9, (0, 0, 0.95), "wood", verts=8, r2=0.11)
     cyl(0.06, 0.8, (0.25, 0, 1.5), "wood", verts=6, rot=(0, 35, 0))
     for (x, y, z, s, c) in ((0, 0, 2.3, 1.25, "leaf"), (0.55, 0.2, 2.0, 0.85, "leaf_dark"), (-0.5, -0.25, 2.1, 0.9, "leaf"), (0.1, -0.35, 2.85, 0.8, "leaf_dark"), (-0.2, 0.45, 2.7, 0.75, "leaf")):
         smooth(rounded((s, s, s * 0.85), (x, y, z), c, rot=(10, 20, 30)))
@@ -60,7 +60,7 @@ def tree_round():
 
 def tree_cypress():
     reset()
-    cyl(0.1, 0.6, (0, 0, 0.3), "wood", verts=6)
+    cyl(0.1, 0.8, (0, 0, 0.4), "wood", verts=6)
     smooth(rounded((0.9, 0.9, 3.0), (0, 0, 2.0), "leaf_dark"))
     smooth(rounded((0.6, 0.6, 1.2), (0.05, 0.05, 3.3), "leaf"))
     return finish("tree_cypress")
@@ -68,7 +68,7 @@ def tree_cypress():
 
 def tree_pine():
     reset()
-    cyl(0.14, 0.9, (0, 0, 0.45), "wood", verts=8)
+    cyl(0.14, 1.1, (0, 0, 0.55), "wood", verts=8)
     for i, (r, z) in enumerate(((1.25, 1.3), (1.0, 2.1), (0.72, 2.85), (0.45, 3.5))):
         cyl(r, 1.0, (0, 0, z), "leaf_dark" if i % 2 == 0 else "leaf", verts=9, r2=0.05, rot=(0, 0, i * 17))
     return finish("tree_pine")

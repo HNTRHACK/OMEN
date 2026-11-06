@@ -52,16 +52,10 @@ export const PROPS = [
   ["crates", -18.6, 9.2, -9, 5],
 ];
 
-// Building footprints for collision: [x, z, radius]
+// Building and relay footprints for collision: [x, z, radius]
 export const SOLIDS = [
   [-15.5, 10.5, 4.3],
   [15.5, -10, 3.7],
   [-7, -19.5, 3.4],
-  [-4.2, -4.0, 1.3],
   [0, 0, 1.0],
-  [-6.9, 3.6, 1.4],
-  [5.0, 4.8, 1.4],
-  [3.4, 4.3, 0.7],
-  [21.2, 13.2, 1.4],
-  [20.0, 16.8, 1.1],
 ];

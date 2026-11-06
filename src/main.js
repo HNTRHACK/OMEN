@@ -406,22 +406,36 @@ async function act() {
 }
 bindInput(input, { onAct: act, onOrbit: (dx, dy) => rig.orbit(dx, dy) });
 
-// A small bobbing envelope over the current objective (subtle, not a beacon)
-const marker = new Envelope(scene).mesh;
-marker.scale.setScalar(0.9);
-scene.add(marker);
+// The large blue arrow marks the current objective.
+const objectiveArrow = new THREE.Group();
+const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0x168cff, toneMapped: false });
+const arrowShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 1.1, 8), arrowMaterial);
+arrowShaft.position.y = 0.8;
+const arrowHead = new THREE.Mesh(new THREE.ConeGeometry(0.58, 0.9, 6), arrowMaterial);
+arrowHead.rotation.z = Math.PI;
+arrowHead.position.y = 0.1;
+objectiveArrow.add(arrowShaft, arrowHead);
+scene.add(objectiveArrow);
+const objectiveUp = new THREE.Vector3();
+const objectiveRotation = new THREE.Quaternion();
+function roofTarget(building, height) {
+  const position = building.getWorldPosition(new THREE.Vector3());
+  building.getWorldQuaternion(objectiveRotation);
+  objectiveUp.set(0, 1, 0).applyQuaternion(objectiveRotation).normalize();
+  return position.addScaledVector(objectiveUp, height);
+}
 function objectiveTarget() {
   switch (state.stage) {
     case "start":
     case "deliver":
-      return headOf(maya).addScaledVector(maya.group.getWorldPosition(new THREE.Vector3()).normalize(), 0.9);
+      return roofTarget(W.hero.chai, 7.2);
     case "toOrin":
     case "backToOrin":
-      return headOf(orin).addScaledVector(orin.group.getWorldPosition(new THREE.Vector3()).normalize(), 0.9);
+      return roofTarget(W.hero.workshop, 7.2);
     case "relight":
       return relayPos.clone().addScaledVector(relayPos.clone().normalize(), 5.6);
     case "echo":
-      return headOf(echo).addScaledVector(echo.group.position.clone().normalize(), 0.9);
+      return echo.group.position.clone().normalize().multiplyScalar(R + 1.4);
     default:
       return null;
   }
@@ -532,15 +546,13 @@ function frame() {
   smoke.update(dt);
   birds.update(dt, t);
 
-  // the objective marker bobs above whoever you're looking for
+  // Keep the original blue objective arrow hovering above the destination roof.
   const target = mode === "play" ? objectiveTarget() : null;
-  marker.visible = !!target && !busy;
+  objectiveArrow.visible = !!target && !busy;
   if (target) {
     const up = target.clone().normalize();
-    marker.position.copy(target).addScaledVector(up, Math.sin(t * 2.4) * 0.15);
-    marker.up.copy(up);
-    marker.lookAt(marker.position.clone().add(camera.position.clone().sub(marker.position).projectOnPlane(up)));
-    marker.rotateX(-Math.PI / 2.4);
+    objectiveArrow.position.copy(target).addScaledVector(up, 3.1 + Math.sin(t * 2.4) * 0.18);
+    objectiveArrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
   }
   // relay crystal pulses when it's alive
   if (state.relay) W.crystal.material.emissiveIntensity = 1.1 + Math.sin(t * 3) * 0.35;
