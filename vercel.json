@@ -7,13 +7,25 @@
   "functions": {
     "api/runtime.js": {
       "maxDuration": 300,
-      "includeFiles": ["server/migrations/**", "public/predictions/markets.json"]
+      "includeFiles": "{server/migrations/**,public/predictions/markets.json}"
     }
   },
   "rewrites": [
-    { "source": "/socket.io/:path*", "destination": "/api/runtime" },
-    { "source": "/royale-io/:path*", "destination": "/api/runtime" },
-    { "source": "/api/:path*", "destination": "/api/runtime" },
-    { "source": "/uploads/:path*", "destination": "/api/runtime" }
+    {
+      "source": "/socket.io/:path*",
+      "destination": "/api/runtime"
+    },
+    {
+      "source": "/royale-io/:path*",
+      "destination": "/api/runtime"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "/api/runtime"
+    },
+    {
+      "source": "/uploads/:path*",
+      "destination": "/api/runtime"
+    }
   ]
 }
