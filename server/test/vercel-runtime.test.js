@@ -49,10 +49,10 @@ test('two independent Function instances share World sessions, avatars, rooms, m
   assert.equal((await request(b, '/api/human', null, alice.cookie)).data.human.playerId, alice.data.human.playerId);
   assert.equal((await request(a, '/api/royale/join', {})).status, 401);
   const connect = async (runtime, namespace, path, cookie) => {
-    const socket = io(runtime.base + namespace, { path, transports: ['websocket'], forceNew: true, ...(cookie ? { extraHeaders: { cookie } } : {}) });
+    const socket = io(runtime.base + namespace, { path, addTrailingSlash: path !== '/api/runtime', transports: ['websocket'], forceNew: true, ...(cookie ? { extraHeaders: { cookie } } : {}) });
     sockets.push(socket); await event(socket, 'connect'); return socket;
   };
-  const sa = await connect(a, '/world', '/socket.io/'), sb = await connect(b, '/world', '/socket.io/');
+  const sa = await connect(a, '/world', '/api/runtime'), sb = await connect(b, '/world', '/api/runtime');
   // Allow the adapter's first heartbeat to discover the independent instance.
   await wait(5500);
   const join = (s, token) => new Promise(r => s.emit('join', { room: 'pavilion-2', name: token[0], token, state: { d: [0,1,0], f: [1,0,0] } }, r));
@@ -65,7 +65,7 @@ test('two independent Function instances share World sessions, avatars, rooms, m
   const moved = event(sb, 'states');
   sa.emit('state', { d: [0,1,0], f: [1,0,0], h: 1, sp: 2 });
   assert.ok((await moved).some(row => row[0] === first.id));
-  const royaleB = await connect(b, '/royale', '/royale-io/', bob.cookie);
+  const royaleB = await connect(b, '/royale', '/api/runtime', bob.cookie);
   const changed = event(royaleB, 'royale:changed');
   assert.equal((await request(a, '/api/royale/join', { name: 'Alice' }, alice.cookie)).data.me.balance, 1000);
   await changed;

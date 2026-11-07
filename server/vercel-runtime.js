@@ -18,7 +18,7 @@ export async function createVercelRuntime({ database = null, clusterPool = null,
   database ||= createDatabase(secureUrl(process.env.DATABASE_URL));
   clusterPool ||= new pg.Pool({ connectionString: secureUrl(direct), max: 6, connectionTimeoutMillis: 10_000 });
   clusterPool.on('error', error => console.error('Realtime PostgreSQL connection failed:', error.code));
-  const realtimeOptions = { clusterPool };
+  const realtimeOptions = { clusterPool, path: '/api/runtime' };
   const notifier = createNotifier({ realtimeOptions });
   // There is no workstation JSON import source inside a deployment.
   const app = createGateway({ database, legacyDir: null, onChange: notifier.onChange, notify: notifier.notify });
@@ -33,7 +33,7 @@ export async function createVercelRuntime({ database = null, clusterPool = null,
       try {
         if (new URL(req.url, 'http://omen').pathname === '/api/deployment') {
           res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-          return res.end(JSON.stringify({ branch: process.env.VERCEL_GIT_COMMIT_REF || null, commit: process.env.VERCEL_GIT_COMMIT_SHA || null, points: 'free-nonredeemable', persistentIdentity: true, realtime: 'socket.io-postgres' }));
+          return res.end(JSON.stringify({ branch: process.env.VERCEL_GIT_COMMIT_REF || null, commit: process.env.VERCEL_GIT_COMMIT_SHA || null, points: 'free-nonredeemable', persistentIdentity: true, realtime: 'socket.io-postgres', socketPath: '/api/runtime' }));
         }
         if (await final(req, res)) return;
         await app(req, res);
@@ -44,9 +44,9 @@ export async function createVercelRuntime({ database = null, clusterPool = null,
       }
     });
     const world = notifier.attach(server, app.community, database, app.worldIdentity);
-    const royale = final.royale.attach(server, { adapter });
+    const royale = final.royale.attach(server, { sharedIo: world.io });
     return { server, app, final, world, royale, async close() {
-      await Promise.all([new Promise(r => world.io.close(r)), new Promise(r => royale.close(r))]);
+      await new Promise(r => world.io.close(r));
       if (server.listening) await new Promise(r => server.close(r));
       await app.close(); await clusterPool.end();
     } };

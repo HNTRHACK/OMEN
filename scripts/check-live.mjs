@@ -42,13 +42,14 @@ function next(socket, name) {
   });
 }
 async function connect(namespace, path) {
-  const socket = io(base + namespace, { path, transports: ['websocket'], forceNew: true, reconnection: false, timeout: 15000 });
+  const socket = io(base + namespace, { path, addTrailingSlash: path !== '/api/runtime', transports: ['websocket'], forceNew: true, reconnection: false, timeout: 15000 });
   sockets.push(socket);
-  await Promise.race([next(socket, 'connect'), next(socket, 'connect_error').then(error => { throw error; })]);
+  await Promise.race([next(socket, 'connect'), next(socket, 'connect_error').then(error => { throw new Error(error.description?.error?.message || error.message); })]);
   return socket;
 }
 try {
-  const a = await connect('/world', '/socket.io/'), b = await connect('/world', '/socket.io/');
+  const path = deployment.socketPath || '/socket.io/';
+  const a = await connect('/world', path), b = await connect('/world', path);
   const room = 'deploy-' + randomBytes(4).toString('hex');
   const join = socket => new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('World join timed out')), 15000);
@@ -59,6 +60,6 @@ try {
   const movement = next(b, 'states');
   a.emit('state', { d: [0,1,0], f: [1,0,0], h: 1, sp: 2 });
   assert.ok((await movement).some(row => row[0] === first.id));
-  await connect('/royale', '/royale-io/'); await connect('/royale', '/royale-io/');
+  await connect('/royale', deployment.socketPath || '/royale-io/'); await connect('/royale', deployment.socketPath || '/royale-io/');
   console.log(JSON.stringify({ websockets: 'passed', independentClients: 2, roomJoinAndVisibility: 'passed', movementSynchronization: 'passed', royaleNamespace: 'connected', browserUI: 'not tested', verifiedUserPointsFlow: 'requires two real World ID users' }));
 } finally { sockets.forEach(socket => socket.disconnect()); }

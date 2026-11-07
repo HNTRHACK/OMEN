@@ -352,9 +352,9 @@ export function createRoyale({ pool, database = null, auth = database ? createAu
     }, 300);
   }
 
-  function attach(httpServer, { adapter = null } = {}) {
-    io = new Server(httpServer, { path: "/royale-io/", serveClient: false, maxHttpBufferSize: 2048 });
-    if (adapter) io.adapter(adapter);
+  function attach(httpServer, { adapter = null, sharedIo = null } = {}) {
+    io = sharedIo || new Server(httpServer, { path: "/royale-io/", serveClient: false, maxHttpBufferSize: 2048 });
+    if (adapter && !sharedIo) io.adapter(adapter);
     io.of("/royale").use(async (sock, next) => {
       try {
         const s = await resolveSession({ headers: sock.handshake.headers });

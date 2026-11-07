@@ -3,6 +3,7 @@ import { createDatabase } from '../server/postgres.js';
 import { finalConfig } from '../server/final-block.js';
 
 if (process.env.VERCEL_GIT_COMMIT_REF !== 'final-block') throw new Error('OMEN production builds require final-block; refusing another branch.');
+if (process.env.VITE_SOCKET_PATH !== '/api/runtime') throw new Error('VITE_SOCKET_PATH must address the canonical realtime Function.');
 if (!process.env.DATABASE_URL || !process.env.DATABASE_URL_UNPOOLED) throw new Error('Neon DATABASE_URL and DATABASE_URL_UNPOOLED are required.');
 for (const key of ['DATABASE_URL', 'DATABASE_URL_UNPOOLED']) {
   const url = new URL(process.env[key]);

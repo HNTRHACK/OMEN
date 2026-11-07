@@ -4,7 +4,9 @@ Release source is `HNTRHACK/OMEN`, branch `final-block`. The Vercel project is `
 in the existing `hntrhacks-projects` team. Do not deploy `master` or `main`.
 
 `vercel.json` builds all six existing pages and routes API, uploads, `/socket.io/`
-and `/royale-io/` to the same exported Node HTTP server. Fluid compute must remain
+and `/royale-io/` to the same exported Node HTTP server. Production clients use
+`VITE_SOCKET_PATH=/api/runtime` with no trailing slash and share one Engine.IO
+server across all namespaces, so upgrades address the actual Function route. Fluid compute must remain
 enabled. Socket.IO clients use WebSocket transport directly; connections reconnect
 when a Function reaches its 300-second duration. Native Vercel WebSocket support
 is documented at https://vercel.com/docs/functions/websockets.

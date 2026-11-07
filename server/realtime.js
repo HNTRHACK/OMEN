@@ -121,9 +121,9 @@ export function merchantView(p) {
   };
 }
 
-export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), isMuted = () => false, worldIdentity = null, btcinr = null, adapter = null, clusterPool = null } = {}) {
+export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), isMuted = () => false, worldIdentity = null, btcinr = null, adapter = null, clusterPool = null, path = '/socket.io/' } = {}) {
   const chatLog = new Map(); // room → last messages, for players who arrive mid-conversation
-  const io = new Server(httpServer, { serveClient: false, maxHttpBufferSize: 4096, pingInterval: 10_000, pingTimeout: 8_000 });
+  const io = new Server(httpServer, { path, addTrailingSlash: path !== '/api/runtime', serveClient: false, maxHttpBufferSize: 4096, pingInterval: 10_000, pingTimeout: 8_000 });
   if (adapter) io.adapter(adapter);
   const closeBtcInr = btcinr ? attachBtcInr(io, btcinr) : null;
   if (closeBtcInr) httpServer.once('close', closeBtcInr);
