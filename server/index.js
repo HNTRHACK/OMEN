@@ -439,12 +439,12 @@ export function logStatus(where) {
 }
 
 /** Payment changes fan out to the merchant's live view and their signed webhook. */
-export function createNotifier() {
+export function createNotifier({ realtimeOptions = {} } = {}) {
   const webhooks = createWebhooks();
   let rt = null;
   return {
     webhooks,
-    attach: (httpServer, community, database, worldIdentity = community?.worldIdentity) => (rt = attachRealtime(httpServer, { worldIdentity, btcinr: community?.btcinr, isMuted: (id) => database ? database.transaction(() => community?.muted(id)) : community?.muted(id) })),
+    attach: (httpServer, community, database, worldIdentity = community?.worldIdentity) => (rt = attachRealtime(httpServer, { ...realtimeOptions, worldIdentity, btcinr: community?.btcinr, isMuted: (id) => database ? database.transaction(() => community?.muted(id)) : community?.muted(id) })),
     notify: { player: (id, ev, d) => rt?.toPlayer(id, ev, d), all: (ev, d) => rt?.toAll(ev, d) },
     onChange: (p) => {
       rt?.notifyPayment(p);

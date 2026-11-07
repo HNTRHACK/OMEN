@@ -135,7 +135,7 @@ export function buildRoyale(scene) {
     paint();
   };
   const refresh = () => (clearTimeout(t), (t = setTimeout(load, 300)));
-  const sock = io("/royale", { path: "/royale-io/", transports: ["websocket", "polling"] });
+  const sock = io("/royale", { path: "/royale-io/", transports: ["websocket"] });
   sock.on("connect", refresh);
   sock.on("royale:changed", refresh);
   sock.on("royale:reveal", refresh);

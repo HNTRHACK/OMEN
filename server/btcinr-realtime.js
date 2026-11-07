@@ -36,7 +36,7 @@ export function attachBtcInr(io, service) {
       let count;
       do {
         count = await service.drainOutbox(async (row) => {
-          for (const socket of namespace.sockets.values()) {
+          for (const socket of await namespace.fetchSockets()) {
             const who = socket.data.btcinr;
             if (!(row.customer_id && row.customer_id === who.customerId) && !(row.merchant_id && row.merchant_id === who.merchantId)) continue;
             if (!await service.validSocket(who)) { expire(socket); continue; }

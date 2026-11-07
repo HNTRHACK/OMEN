@@ -13,6 +13,7 @@ import { cleanLook, lookFromOutfit } from "../shared/look.js";
 import { playerIdOf, TOKEN_RE, ID_RE } from "./identity.js";
 import { moderateText } from "./moderation.js";
 import { attachBtcInr } from './btcinr-realtime.js';
+import { clusterWorld } from './cluster-world.js';
 
 export const ROOM_RE = /^[a-z0-9][a-z0-9-]{2,23}$/;
 export const OUTFITS = 6;
@@ -120,9 +121,10 @@ export function merchantView(p) {
   };
 }
 
-export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), isMuted = () => false, worldIdentity = null, btcinr = null } = {}) {
+export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), isMuted = () => false, worldIdentity = null, btcinr = null, adapter = null, clusterPool = null } = {}) {
   const chatLog = new Map(); // room → last messages, for players who arrive mid-conversation
   const io = new Server(httpServer, { serveClient: false, maxHttpBufferSize: 4096, pingInterval: 10_000, pingTimeout: 8_000 });
+  if (adapter) io.adapter(adapter);
   const closeBtcInr = btcinr ? attachBtcInr(io, btcinr) : null;
   if (closeBtcInr) httpServer.once('close', closeBtcInr);
   const rooms = new Map(); // room → Map(playerId → player)
@@ -130,8 +132,9 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
 
   // ---------------------------------------------------------------- world
   const world = io.of("/world");
+  const cluster = clusterPool ? clusterWorld(world, rooms, clusterPool) : null;
   // Reconnect ghosts retain their avatar briefly, but are not online people.
-  const presence = (room) => ({ online: [...(rooms.get(room)?.values() || [])].filter((p) => world.sockets.get(p.sock)?.connected).length });
+  const presence = (room) => ({ online: [...(rooms.get(room)?.values() || [])].filter((p) => cluster ? !!p.sock : world.sockets.get(p.sock)?.connected).length });
   const expireIdentity = (sock) => {
     if (sock.data.authRevoked) return;
     sock.data.authRevoked = true;
@@ -175,6 +178,7 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
     worldIdentity?.events.off('avatar', avatarChanged);
     for (const ghost of ghosts.values()) clearTimeout(ghost.timer);
     ghosts.clear();
+    cluster?.close();
   });
   world.on("connection", (sock) => {
     const allow = limiter(25, 40);
@@ -197,7 +201,9 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
     sock.on("join", async (msg, ack) => {
       if (typeof ack !== "function" || me || joining) return;
       joining = true;
+      let unlock = null;
       try {
+      if (cluster) { unlock = await cluster.lock(); await cluster.refresh(); }
       let room = String(msg?.room || "").toLowerCase();
       if (!ROOM_RE.test(room)) return ack({ error: "Room codes are 3–24 letters, digits or dashes." });
       const token = typeof msg?.token === "string" && TOKEN_RE.test(msg.token) ? msg.token : null;
@@ -254,15 +260,17 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
       sock.data.sessionHash = me.sessionHash;
       sock.data.accountId = me.accountId;
       sock.data.playerId = token || owned ? me.id : null; // public IDs never authorize private notifications
+      if (sock.data.playerId) sock.join('player:' + sock.data.playerId);
       if (identity?.sessionHash) {
         expiryTimer = setTimeout(() => expireIdentity(sock), Math.max(0, identity.sessionExpiresAt - Date.now()));
         expiryTimer.unref();
       }
       sock.join(room);
+      cluster?.publish([me]);
       ack({ id: me.id, avatarId: me.id, verifiedHuman: me.verifiedHuman, avatarRevision: me.avatarRevision, room, spawnSlot: me.spawnSlot, resumed: !!existing, state: me.s, ...presence(room), players: [...players.values()].filter((p) => p.id !== me.id).map(pub), chat: chatLog.get(room) || [] });
       world.to(room).emit('presence', presence(room));
       } catch (e) { ack({ error: e.status === 401 ? 'Sign in again with World ID.' : 'Identity service is unavailable.', code: e.code || 'identity_unavailable' }); }
-      finally { joining = false; }
+      finally { joining = false; if (unlock) await unlock().catch(() => sock.disconnect(true)); }
     });
 
     const chatAllow = limiter(0.8, 4); // ~1 message a second, short bursts
@@ -288,6 +296,7 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
       if (!me || !allow()) return;
       if (sock.data.sessionHash) return sock.emit('profile:update', pub(me)); // persisted avatars change through the owned API
       me.look = cleanLook(l);
+      cluster?.publish([me]);
       sock.to(me.room).emit("look", { id: me.id, name: me.name, look: me.look });
     });
 
@@ -312,6 +321,7 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
       if (!me) return;
       const p = me;
       if (p.sock !== sock.id) return; // replaced by a newer connection of the same courier
+      cluster?.depart({ id: p.id, room: p.room, sock: sock.id });
       p.sock = null;
       world.to(p.room).emit('presence', presence(p.room));
       if (sock.data.authRevoked) {
@@ -347,6 +357,7 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
     const t0 = performance.now();
     stats.ticks++;
     const farTick = stats.ticks % SCALE.farEvery === 0;
+    if (cluster) cluster.publish([...world.sockets.values()].map(s => s.data.profile).filter(p => p?.dirty && p.sock));
     for (const players of rooms.values()) {
       if (players.size < 2) {
         for (const p of players.values()) p.dirty = p.farDirty = false;
@@ -417,7 +428,7 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
     /** Send to every connected socket of one player (any room). */
     toPlayer(id, ev, data) {
       if (!id) return;
-      for (const s of world.sockets.values()) if (s.data.playerId === id) s.emit(ev, data);
+      world.to('player:' + id).emit(ev, data);
     },
     /** Send to every connected player (shop, billboard and forum updates are world-wide). */
     toAll(ev, data) {

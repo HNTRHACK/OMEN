@@ -20,9 +20,9 @@ const ORDER_OPENED = parseAbi(["event OrderOpened(uint256 indexed orderId, addre
 export function mountFinalRoutes(final, { fetchImpl = fetch, chain = null, relayerUrl = final.config.chaipayUrl, database = null } = {}) {
   // Bounty Royale (free OMEN points, server-authoritative) needs PostgreSQL.
   if (database) {
-    final.royale = createRoyale({ pool: database.pool, database, sessionOf: final.sessionOf });
+    final.royale = createRoyale({ pool: database.pool, database, sessionOf: final.sessionOf, resolveSession: final.resolveSession });
     final.royale.mount(final);
-    final.royale.ready = final.royale.seed().catch((e) => console.error("[royale] seed failed:", e.message));
+    final.royale.ready = final.royale.seed();
   }
   const { HttpError } = final;
   const pub = chain || createPublicClient({ transport: http(CHAIPAY.rpc) });

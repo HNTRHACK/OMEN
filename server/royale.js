@@ -58,7 +58,7 @@ class RoyaleError extends Error {
   }
 }
 
-export function createRoyale({ pool, database = null, auth = database ? createAuth(database) : null, sessionOf, now = () => new Date() }) {
+export function createRoyale({ pool, database = null, auth = database ? createAuth(database) : null, sessionOf, resolveSession = async (req) => sessionOf(req), now = () => new Date() }) {
   let io = null;
   const tx = async (fn) => {
     const c = await pool.connect();
@@ -352,16 +352,22 @@ export function createRoyale({ pool, database = null, auth = database ? createAu
     }, 300);
   }
 
-  function attach(httpServer) {
+  function attach(httpServer, { adapter = null } = {}) {
     io = new Server(httpServer, { path: "/royale-io/", serveClient: false, maxHttpBufferSize: 2048 });
-    io.of("/royale").use((sock, next) => {
-      const s = sessionOf({ headers: sock.handshake.headers });
-      sock.data.playerId = s?.human.playerId || null; // spectators may watch; only humans stake (over HTTP)
-      next();
+    if (adapter) io.adapter(adapter);
+    io.of("/royale").use(async (sock, next) => {
+      try {
+        const s = await resolveSession({ headers: sock.handshake.headers });
+        sock.data.playerId = s?.human.playerId || null; // spectators may watch; only humans stake (over HTTP)
+        next();
+      } catch { next(new Error('Identity service unavailable')); }
     });
     io.of("/royale").on("connection", (sock) => {
       sock.emit("royale:hello", { verified: !!sock.data.playerId });
-      const count = () => io.of("/royale").emit("royale:presence", { online: io.of("/royale").sockets.size });
+      const count = async () => {
+        try { io.of("/royale").emit("royale:presence", { online: (await io.of("/royale").fetchSockets()).length }); }
+        catch { /* no invented count on a coordination failure */ }
+      };
       count();
       sock.on("disconnect", count);
     });

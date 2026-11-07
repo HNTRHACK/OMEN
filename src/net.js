@@ -151,7 +151,7 @@ export function createNet({ scene, camera, local, feed, onCount = () => {}, onJo
     sock?.close();
     joined = false;
     online = 0;
-    sock = io("/world", { transports: ["websocket", "polling"], reconnectionDelayMax: 4000 });
+    sock = io("/world", { transports: ["websocket"], reconnectionDelayMax: 4000 });
     const hello = () =>
       sock.emit("join", { room, name, look, token: guestToken(), state: local() }, (res) => {
         if (res?.error) { joined = false; count(); return feed(res.error); }

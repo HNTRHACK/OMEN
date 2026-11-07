@@ -83,7 +83,7 @@ export function createFinalBlock({ config = finalConfig(), store = fileStore(con
   const cookieOf = (req) => /(?:^|;\s*)omen_human=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie || "")?.[1] || null;
   const sessionOf = (req) => {
     const t = cookieOf(req);
-    const s = t && db.sessions[sha(t)];
+    const s = t && db.sessions?.[sha(t)];
     if (!s || s.expiresAt < now()) return null;
     const human = db.humans[s.nullifier];
     return human ? { token: t, human } : null;
@@ -212,7 +212,8 @@ export function createFinalBlock({ config = finalConfig(), store = fileStore(con
         if (o.host !== req.headers.host) throw new HttpError(403, "bad_origin", "This origin is not allowed.");
       }
       const body = req.method === "POST" ? await readJson(req) : null;
-      send(200, await fn(body, req, url));
+      const execute = () => fn(body, req, url);
+      send(200, await (store.run ? store.run(execute) : execute()));
     } catch (e) {
       if (!(e instanceof HttpError)) console.error("[final-block]", e);
       send(e.status || 500, { error: e.code || "internal", message: e instanceof HttpError ? e.message : "Something went wrong." });
@@ -220,6 +221,7 @@ export function createFinalBlock({ config = finalConfig(), store = fileStore(con
     return true;
   };
   handle.sessionOf = sessionOf;
+  handle.resolveSession = (req) => store.run ? store.run(() => sessionOf(req)) : Promise.resolve(sessionOf(req));
   handle.publicHuman = publicHuman;
   handle.db = db;
   handle.save = save;

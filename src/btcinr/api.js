@@ -81,7 +81,7 @@ export const forgetKey = (quoteId) => {
  * (the contract: socket publication is not device receipt).
  */
 export function live(role, { onPayment, onBalance, onExpired, resync, onState = () => {} }) {
-  const sock = io("/btcinr", { transports: ["websocket", "polling"], auth: role === "merchant" ? { role: "merchant" } : { customerToken: guestToken() } });
+  const sock = io("/btcinr", { transports: ["websocket"], auth: role === "merchant" ? { role: "merchant" } : { customerToken: guestToken() } });
   let poll = 0;
   const seen = new Set();
   const startPoll = () => (poll ||= setInterval(resync, 4000));

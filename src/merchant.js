@@ -116,7 +116,7 @@ async function open(e) {
   $("#board").hidden = false;
   render();
   sock?.close();
-  sock = io("/merchant", { auth: { merchantId: id, key }, transports: ["websocket", "polling"] });
+  sock = io("/merchant", { auth: { merchantId: id, key }, transports: ["websocket"] });
   sock.on("connect", () => status("Live: payments appear as they settle", "on"));
   sock.on("disconnect", () => status("Reconnecting…", "off"));
   sock.on("connect_error", (err) => status(err.message === "unauthorized" ? "Key refused" : "Can't reach the gateway", "off"));

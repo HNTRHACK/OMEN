@@ -71,7 +71,7 @@ export function createArena({ getName = () => "Courier", onOpen = () => {}, onCl
 
   function connect() {
     if (sock) return;
-    sock = socket || io("/royale", { path: "/royale-io/", transports: ["websocket", "polling"] }); // one connection per page, shared with the venue scoreboard
+    sock = socket || io("/royale", { path: "/royale-io/", transports: ["websocket"] }); // one connection per page, shared with the venue scoreboard
     sock.on("royale:changed", refresh);
     sock.on("connect", refresh); // resync after any reconnect
     if (Number.isInteger(sock.online)) online = sock.online; // a shared socket already knows the count
