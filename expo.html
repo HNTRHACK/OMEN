@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#1d2f8f">
+  <title>OMEN · Mumbai venue</title>
+  <meta name="description" content="Walk OMEN's stylised venue inspired by the exhibition halls of Jio World Convention Centre: arrival hall, branching columns and the Main Stage.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Patrick+Hand&display=swap" rel="stylesheet">
+</head>
+<body class="expo">
+  <canvas id="scene" aria-label="OMEN's Mumbai venue: an exhibition hall with branching white columns"></canvas>
+
+  <div id="loading" role="status">
+    <p>Opening the venue</p>
+    <div class="load-track"><div id="load-bar"></div></div>
+  </div>
+
+  <section id="intro" aria-labelledby="ex-h">
+    <form id="ex-form" class="card intro-card">
+      <p class="kicker">OMEN · phase 1</p>
+      <h1 id="ex-h">The Mumbai venue</h1>
+      <p>A stylised interpretation of the exhibition halls at Jio World Convention Centre: the arrival hall, the branching columns and the Main Stage. Other zones open in later phases.</p>
+      <label>Your name<input id="ex-name" maxlength="16" autocomplete="nickname" placeholder="Guest"></label>
+      <div class="row-actions">
+        <button id="ex-enter" class="btn" type="submit">Enter the venue</button>
+        <a class="btn ghost" href="./index.html">Change avatar in Blockhaven</a>
+      </div>
+      <p class="fine"><b>Move</b> WASD · <b>Run</b> Shift · <b>Jump</b> Space · <b>Look</b> drag · <b>Act</b> E · <b>Map</b> M · <b>Travel</b> 0–3</p>
+      <p class="fine">Not an official venue or event floor plan. Zone placement is OMEN's own.</p>
+    </form>
+  </section>
+
+  <div id="hud" hidden>
+    <p id="online" class="pill" role="status">connecting…</p>
+    <button id="act" class="btn small" type="button" aria-label="Interact">E</button>
+  </div>
+  <ul id="feed" aria-live="polite"></ul>
+  <p id="toast" hidden role="status"></p>
+  <div id="prompt" hidden><span id="prompt-key">E</span><span id="prompt-text"></span></div>
+  <div id="stick" hidden aria-hidden="true"></div>
+  <div id="fade" aria-hidden="true"></div>
+  <script type="module" src="/src/expo/main.js"></script>
+</body>
+</html>

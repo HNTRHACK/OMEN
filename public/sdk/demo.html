@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chai Online · OMEN SDK demo</title>
+  <style>
+    :root { --ink: #2b2230; --paper: #fbf3e4; --butter: #f3d98b; --teal: #3e8e8a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px; background: #f6c7a1; color: var(--ink); font: 18px/1.4 system-ui, sans-serif; }
+    main { width: min(420px, 100%); background: var(--paper); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 6px 6px 0 var(--ink); padding: 20px; }
+    h1 { margin: 0 0 4px; font-size: 26px; }
+    .price { font-size: 32px; font-weight: 800; margin: 12px 0; }
+    button { font: inherit; font-weight: 800; background: var(--butter); border: 3px solid var(--ink); border-radius: 12px; padding: 10px 22px; cursor: pointer; box-shadow: 0 4px 0 var(--ink); }
+    button:disabled { opacity: 0.6; }
+    #status { min-height: 1.4em; color: #6d5f66; }
+    a { color: var(--teal); }
+    small { color: #6d5f66; }
+  </style>
+</head>
+<body>
+  <main>
+    <p><small>An ordinary web shop, outside the game, using the OMEN Checkout SDK.</small></p>
+    <h1>Masala chai + bun maska</h1>
+    <p class="price">₹60.00</p>
+    <button id="pay">Pay with USDT (no gas)</button>
+    <p id="status" role="status"></p>
+    <p><small>Whitechain Sepolia <b>testnet</b> USDT, which has no monetary value. ₹ is a quoted equivalent (DEMO INR SETTLEMENT); no rupees move.</small></p>
+  </main>
+  <!-- This is the whole integration. -->
+  <script type="module">
+    import { OmenCheckout } from "./omen-checkout.js";
+    const checkout = new OmenCheckout({ gateway: location.origin, merchant: "maya-chai" });
+    const status = document.querySelector("#status");
+    document.querySelector("#pay").onclick = async (e) => {
+      e.target.disabled = true;
+      try {
+        const receipt = await checkout.pay({ inr: "60.00", note: "Masala chai + bun maska" }, { onStatus: (s) => (status.textContent = s + "…") });
+        status.innerHTML = `Paid ${receipt.amount} ${receipt.token}. <a href="${receipt.explorer}" target="_blank" rel="noopener">View on Whitechain ↗</a>`;
+      } catch (err) {
+        status.textContent = err.message;
+        e.target.disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>

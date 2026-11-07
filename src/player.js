@@ -16,6 +16,7 @@ export class Mover {
     this.fwd = project(fwd.clone(), this.dir).normalize();
     this.colliders = colliders;
     this.speed = 0;
+    this.moveDir = this.fwd.clone(); // where KAI is actually travelling (input direction)
     this.h = 0;
     this.vh = 0;
     this.grounded = true;
@@ -42,7 +43,9 @@ export class Mover {
   update(dt, input, camFwd) {
     const up = this.dir;
     const camF = project(camFwd.clone(), up).normalize();
-    const camR = new THREE.Vector3().crossVectors(up, camF);
+    // Screen-right is camF × up (three.js cameras look down their -Z). up × camF is screen-LEFT,
+    // which is what made A/D walk the wrong way.
+    const camR = new THREE.Vector3().crossVectors(camF, up);
     let mx = this.enabled ? input.x : 0;
     let my = this.enabled ? input.y : 0;
     const mag = Math.min(1, Math.hypot(mx, my));
@@ -52,6 +55,13 @@ export class Mover {
     this.speed += (target - this.speed) * Math.min(1, dt * (target > this.speed ? 5.5 : 8));
     if (mag > 0.05) {
       want.normalize();
+      // Travel where the keys point straight away; the body catches up by turning. (Moving along
+      // the facing direction instead made S/turns arc sideways.)
+      this.moveDir.copy(want);
+    } else if (this.speed < 0.05) {
+      this.moveDir.copy(this.fwd); // at rest: re-sync (teleports, loads, conversations turn KAI)
+    }
+    if (mag > 0.05) {
       // turn toward the movement direction, faster at low speed
       const ang = this.fwd.angleTo(want);
       const sign = Math.sign(new THREE.Vector3().crossVectors(this.fwd, want).dot(up)) || 1;
@@ -60,13 +70,15 @@ export class Mover {
       this.fwd.applyQuaternion(tmpQ);
     }
     if (this.speed > 0.01) {
-      const axis = tmpV.crossVectors(up, this.fwd).normalize();
+      const axis = tmpV.crossVectors(up, this.moveDir).normalize();
       tmpQ.setFromAxisAngle(axis, (this.speed * dt) / R);
       this.dir.applyQuaternion(tmpQ).normalize();
       this.fwd.applyQuaternion(tmpQ);
+      this.moveDir.applyQuaternion(tmpQ);
       this.collide();
     }
     project(this.fwd, this.dir).normalize();
+    project(this.moveDir, this.dir).normalize();
 
     // jumping
     if (this.enabled && input.jump && this.grounded) {
@@ -168,7 +180,7 @@ export class CameraRig {
     project(this.fwd, up).normalize(); // carry the view direction along the curved ground
     this.manual += dt;
     // swing behind KAI while walking (not while the player is orbiting by hand)
-    if (m.speed > 0.6 && this.manual > 1.2) {
+    if (m.speed > 0.6 && this.manual > 1.2 && m.moveDir.dot(this.fwd) > 0.5) {
       const k = Math.min(1, dt * 0.9 * Math.min(1.5, m.speed / 3.5));
       this.fwd.lerp(m.fwd, k).normalize();
     }
@@ -194,8 +206,12 @@ export class CameraRig {
         this.blocked = hit ? Math.max(1.6, hit.distance - 0.45) : len;
         this.full = len;
       }
-      const ratio = this.full ? Math.min(1, this.blocked / this.full) : 1;
-      pos = d.head.clone().lerp(d.pos, ratio);
+      // The raycast only runs every 4th frame; ease toward its answer so the camera doesn't step.
+      // Pull in fast (never sit inside a wall), let out slowly.
+      const target = this.full ? Math.min(1, this.blocked / this.full) : 1;
+      this.ratio ??= target;
+      this.ratio += (target - this.ratio) * Math.min(1, dt * (target < this.ratio ? 18 : 3));
+      pos = d.head.clone().lerp(d.pos, this.ratio);
       look = d.look;
     }
     const k = 1 - Math.exp(-dt * (this.talk ? 3 : 7));

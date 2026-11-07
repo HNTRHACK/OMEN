@@ -16,20 +16,26 @@ export const ui = {
     setTimeout(() => $("#loading").remove(), 800);
   },
 
-  showTitle(hasSave, onStart) {
+  /** Landing: Continue (if saved), Join World, Play with friends. */
+  showTitle(hasSave, { onJoin, onContinue }) {
     const t = $("#title");
     t.hidden = false;
+    t.classList.remove("leaving");
     $("#continue").hidden = !hasSave;
-    $("#start").textContent = hasSave ? "New game" : "Start";
-    $("#start").classList.toggle("ghost", hasSave);
-    const go = (fresh) => {
-      t.classList.add("leaving");
-      setTimeout(() => (t.hidden = true), reduce ? 0 : 500);
-      onStart(fresh);
-    };
-    $("#start").onclick = () => go(true);
-    $("#continue").onclick = () => go(false);
-    (hasSave ? $("#continue") : $("#start")).focus();
+    $("#join").textContent = hasSave ? "Customize & join" : "Join World";
+    $("#join").classList.toggle("ghost", hasSave);
+    $("#join").onclick = () => onJoin(false);
+    $("#friends").onclick = () => onJoin(true);
+    $("#continue").onclick = () => onContinue();
+    (hasSave ? $("#continue") : $("#join")).focus();
+  },
+  hideTitle() {
+    for (const id of ["#title", "#creator"]) {
+      const el = $(id);
+      if (el.hidden) continue;
+      el.classList.add("leaving");
+      setTimeout(() => ((el.hidden = true), el.classList.remove("leaving")), reduce ? 0 : 500);
+    }
   },
 
   showHud() {
@@ -198,6 +204,10 @@ ui.dialogueOpen = () => !$("#dialogue").hidden;
 
 // ------------------------------------------------------------------ input
 
+let releaseKeys = () => {};
+/** Drop every held movement key (call when an overlay takes or returns the keyboard). */
+export const clearHeldKeys = () => releaseKeys();
+
 export function bindInput(input, { onAct, onOrbit }) {
   const keys = new Set();
   const sync = () => {
@@ -206,9 +216,11 @@ export function bindInput(input, { onAct, onOrbit }) {
     input.run = keys.has("shift");
   };
   addEventListener("keydown", (e) => {
-    if (e.target.closest?.("input, textarea")) return;
+    if (e.target.closest?.("input, textarea, select, #pay, #coin-card, #shop, #forum, #chat-bar, #alfred")) return;
+    if (document.querySelector("#pay:not([hidden]), #coin-card:not([hidden]), #shop:not([hidden]), #forum:not([hidden]), #chat-bar:not([hidden]), #alfred:not([hidden])")) return; // an open sheet owns the keyboard
     const k = e.key.toLowerCase();
     if (ui.dialogueOpen()) return;
+    if (k === "e") e.preventDefault(); // never let the interact key be typed into a panel it opens
     if (k === "e" || k === "enter") return onAct();
     if (k === " ") {
       e.preventDefault();
@@ -227,10 +239,14 @@ export function bindInput(input, { onAct, onOrbit }) {
     keys.delete(e.key.toLowerCase());
     sync();
   });
-  addEventListener("blur", () => {
+  // Forget held keys whenever the game loses the keyboard (window blur, tab hidden, an overlay
+  // opening or closing); otherwise a key released elsewhere stays "down" and KAI walks on alone.
+  releaseKeys = () => {
     keys.clear();
     sync();
-  });
+  };
+  addEventListener("blur", releaseKeys);
+  document.addEventListener("visibilitychange", releaseKeys);
 
   // drag to look around
   const canvas = $("#scene");

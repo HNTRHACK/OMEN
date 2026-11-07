@@ -1,0 +1,243 @@
+{
+  "_readme": "OWNER-EDITABLE. Option labels map to on-chain option ids by position: edit labels freely BEFORE running scripts/predictions-setup.mjs; after a market is created on-chain (it has a marketId), never reorder its options. Testnet tokens only. No real money. Just for fun.",
+  "label": "Testnet tokens only. No real money. Just for fun.",
+  "chainId": 1874,
+  "contract": null,
+  "mode": "points",
+  "closesAt": "2026-11-08T13:00:00+05:30",
+  "booths": [
+    {
+      "id": "finalists",
+      "name": "Finalist Booth",
+      "blurb": "Which kinds of projects make the top 3 finalists? Several options can win.",
+      "markets": [
+        {
+          "key": "finalists",
+          "question": "What kind of project makes the top 3 finalists?",
+          "options": [
+            "Payments / DeFi",
+            "Identity / World ID",
+            "AI agents",
+            "Games",
+            "Infra & dev tools",
+            "Social / consumer"
+          ],
+          "marketId": null
+        }
+      ]
+    },
+    {
+      "id": "crossover",
+      "name": "Crossover & Games Booth",
+      "blurb": "Track winners who go all the way — and the big one for us.",
+      "markets": [
+        {
+          "key": "crossover",
+          "question": "Which sponsor track's winner also wins a finalist prize?",
+          "options": [
+            "Whitechain",
+            "Chainlink",
+            "World",
+            "ENS",
+            "Arc",
+            "Hedera",
+            "0G",
+            "1inch",
+            "Uniswap",
+            "Arkiv",
+            "Ethereum Foundation",
+            "Definitive",
+            "None of them"
+          ],
+          "marketId": null
+        },
+        {
+          "key": "game",
+          "question": "Will a game project win?",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "marketId": null
+        }
+      ]
+    },
+    {
+      "id": "tracks",
+      "name": "Sponsor Tracks Booth",
+      "blurb": "What kind of project wins each of the 12 sponsor tracks?",
+      "markets": [
+        {
+          "key": "track-whitechain",
+          "question": "What kind of project wins the Whitechain track?",
+          "options": [
+            "Payments / DeFi",
+            "Identity / World ID",
+            "AI agents",
+            "Games",
+            "Infra & dev tools",
+            "Social / consumer"
+          ],
+          "marketId": null
+        },
+        {
+          "key": "track-chainlink",
+          "question": "What kind of project wins the Chainlink track?",
+          "options": [
+            "Payments / DeFi",
+            "Identity / World ID",
+            "AI agents",
+            "Games",
+            "Infra & dev tools",
+            "Social / consumer"
+          ],
+          "marketId": null
+        },
+        {
+          "key": "track-world",
+          "question": "What kind of project wins the World track?",
+          "options": [
+            "Payments / DeFi",
+            "Identity / World ID",
+            "AI agents",
+            "Games",
+            "Infra & dev tools",
+            "Social / consumer"
+          ],
+          "marketId": null
+        },
+        {
+          "key": "track-ens",
+          "question": "What kind of project wins the ENS track?",
+          "options": [
+            "Payments / DeFi",
+            "Identity / World ID",
+            "AI agents",
+            "Games",
+            "Infra & dev tools",
+            "Social / consumer"
+          ],
+          "marketId": null
+        },
+        {
+          "key": "track-arc",
+          "question": "What kind of project wins the Arc track?",
+          "options": [
+            "Payments / DeFi",
+            "Identity / World ID",
+            "AI agents",
+            "Games",
+            "Infra & dev tools",
+            "Social / consumer"
+          ],
+          "marketId": null
+        },
+        {
+          "key": "track-hedera",
+          "question": "What kind of project wins the Hedera track?",
+          "options": [
+            "Payments / DeFi",
+            "Identity / World ID",
+            "AI agents",
+            "Games",
+            "Infra & dev tools",
+            "Social / consumer"
+          ],
+          "marketId": null
+        },
+        {
+          "key": "track-0g",
+          "question": "What kind of project wins the 0G track?",
+          "options": [
+            "Payments / DeFi",
+            "Identity / World ID",
+            "AI agents",
+            "Games",
+            "Infra & dev tools",
+            "Social / consumer"
+          ],
+          "marketId": null
+        },
+        {
+          "key": "track-1inch",
+          "question": "What kind of project wins the 1inch track?",
+          "options": [
+            "Payments / DeFi",
+            "Identity / World ID",
+            "AI agents",
+            "Games",
+            "Infra & dev tools",
+            "Social / consumer"
+          ],
+          "marketId": null
+        },
+        {
+          "key": "track-uniswap",
+          "question": "What kind of project wins the Uniswap track?",
+          "options": [
+            "Payments / DeFi",
+            "Identity / World ID",
+            "AI agents",
+            "Games",
+            "Infra & dev tools",
+            "Social / consumer"
+          ],
+          "marketId": null
+        },
+        {
+          "key": "track-arkiv",
+          "question": "What kind of project wins the Arkiv track?",
+          "options": [
+            "Payments / DeFi",
+            "Identity / World ID",
+            "AI agents",
+            "Games",
+            "Infra & dev tools",
+            "Social / consumer"
+          ],
+          "marketId": null
+        },
+        {
+          "key": "track-ethereum-foundation",
+          "question": "What kind of project wins the Ethereum Foundation track?",
+          "options": [
+            "Payments / DeFi",
+            "Identity / World ID",
+            "AI agents",
+            "Games",
+            "Infra & dev tools",
+            "Social / consumer"
+          ],
+          "marketId": null
+        },
+        {
+          "key": "track-definitive",
+          "question": "What kind of project wins the Definitive track?",
+          "options": [
+            "Payments / DeFi",
+            "Identity / World ID",
+            "AI agents",
+            "Games",
+            "Infra & dev tools",
+            "Social / consumer"
+          ],
+          "marketId": null
+        }
+      ]
+    },
+    {
+      "id": "problems",
+      "name": "Problem Statement Wall",
+      "blurb": "Back a problem statement you want builders to solve. A fun signal only: no stakes, no prizes, and no sponsor rewards anyone for it.",
+      "signal": true,
+      "options": [
+        "Paying a street vendor in stablecoins should feel like UPI",
+        "Prove you're human without giving up your identity",
+        "Onboard a first-time user without seed phrases",
+        "Make on-chain games fun first, crypto second",
+        "Trustworthy AI agents that can pay for things",
+        "Cheap, verifiable data for small apps"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "results": {
+    "first guest is alone; NPCs are not counted": true,
+    "same public Expo URL, distinct guests, single joins and separate visible arrival positions": {
+      "a": {
+        "id": "69dc511e67f757fbbd338162",
+        "room": "omen-expo",
+        "online": 2,
+        "connected": true,
+        "me": {
+          "x": -3,
+          "y": 0,
+          "z": 13
+        },
+        "remotes": [
+          {
+            "id": "c2e7c0b96b992eec09d70d14",
+            "name": "Ravi",
+            "visible": true,
+            "inScene": true,
+            "position": [
+              -5.4005400540054005,
+              0,
+              13.001300130013
+            ],
+            "packets": 3,
+            "tagVisible": true
+          }
+        ]
+      },
+      "b": {
+        "id": "c2e7c0b96b992eec09d70d14",
+        "room": "omen-expo",
+        "online": 2,
+        "connected": true,
+        "me": {
+          "x": -5.4,
+          "y": 0,
+          "z": 13
+        },
+        "remotes": [
+          {
+            "id": "69dc511e67f757fbbd338162",
+            "name": "Asha",
+            "visible": true,
+            "inScene": true,
+            "position": [
+              -3.0002700243021874,
+              0,
+              13.001170105309477
+            ],
+            "packets": 1,
+            "tagVisible": true
+          }
+        ]
+      }
+    },
+    "join notification is real": true,
+    "B sees A move via real state packets": {
+      "movedMetres": 1.313231871536203,
+      "errorMetres": 0.02149174234348402
+    },
+    "A sees B move via real state packets": {
+      "movedMetres": 1.2903632595842913,
+      "errorMetres": 0.018997732528718263
+    },
+    "refresh preserves guest identity, last position and exactly one remote": true,
+    "transport reconnect restores both directions; disconnected ghost is excluded from online count": true,
+    "movement after reconnect": {
+      "movedMetres": 1.469108535332567,
+      "errorMetres": 0.0028834724977953013
+    },
+    "mobile-sized late guest sees both real players after drag-to-look": {
+      "id": "fede62282fdb8c2f59d67bf6",
+      "room": "omen-expo",
+      "online": 3,
+      "connected": true,
+      "me": {
+        "x": -0.6000000000000001,
+        "y": 0,
+        "z": 13
+      },
+      "remotes": [
+        {
+          "id": "69dc511e67f757fbbd338162",
+          "name": "Asha",
+          "visible": true,
+          "inScene": true,
+          "position": [
+            -1.6501320105608448,
+            0,
+            12.91103288263061
+          ],
+          "packets": 2,
+          "tagVisible": true
+        },
+        {
+          "id": "c2e7c0b96b992eec09d70d14",
+          "name": "Ravi",
+          "visible": true,
+          "inScene": true,
+          "position": [
+            -5.240524052405241,
+            0,
+            13.16131613161316
+          ],
+          "packets": 2,
+          "tagVisible": true
+        }
+      ]
+    },
+    "online count and leave notification match disconnected humans": true,
+    "no page errors; server has exactly two remaining human players": true
+  },
+  "errors": [],
+  "transport": "real same-origin WebSocket over loopback HTTP",
+  "frames": 158
+}

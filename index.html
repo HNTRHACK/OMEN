@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <meta name="theme-color" content="#F6C7A1">
   <title>OMEN: The Last Block</title>
-  <meta name="description" content="A small story game about a courier, a missing payment, and a network that is quietly failing.">
+  <meta name="description" content="A small story game about a courier, a missing payment, and a network that is quietly failing. Scan a UPI QR and pay with crypto.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect x=%223%22 y=%227%22 width=%2226%22 height=%2218%22 rx=%222%22 fill=%22%23FBF3E4%22 stroke=%22%232B2230%22 stroke-width=%222.4%22/%3E%3Cpath d=%22M3 8l13 10 13-10%22 fill=%22none%22 stroke=%22%232B2230%22 stroke-width=%222.4%22/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -27,19 +27,68 @@
     <div class="load-track"><div id="load-bar"></div></div>
   </div>
 
-  <!-- Title -->
-  <section id="title" hidden aria-label="OMEN: The Last Block">
-    <h1 class="logo"><span>OMEN</span><small>the last block</small></h1>
-    <div class="title-actions">
-      <button id="continue" class="btn" type="button" hidden>Continue</button>
-      <button id="start" class="btn" type="button">Start</button>
+  <!-- Human gate: the very first screen (src/final/gate.js) -->
+  <section id="gate" hidden aria-labelledby="gate-h">
+    <div class="gate-card">
+      <p class="gate-kick">OMEN · the last block</p>
+      <h1 id="gate-h">Only humans play OMEN</h1>
+      <div id="gate-body"><p class="gate-lede">Checking who you are…</p></div>
+      <p class="gate-fine">Testnet tokens only. No real money. Just for fun.</p>
     </div>
-    <p class="title-note">A small story game. All blockchain activity in OMEN is simulated.</p>
+  </section>
+
+  <!-- Landing -->
+  <section id="title" hidden aria-label="OMEN: The Last Block">
+    <div class="hero">
+      <h1 class="logo"><span>OMEN</span><small>the last block</small></h1>
+      <p class="tagline">A tiny planet where the chai stall takes stablecoins. Walk it with friends, open a shop, trade, and talk in the plaza.</p>
+      <div class="title-actions">
+        <button id="royale-enter" class="btn royale-cta" type="button">ENTER BOUNTY ROYALE</button>
+        <button id="continue" class="btn" type="button" hidden>Continue</button>
+        <button id="join" class="btn" type="button">Join World</button>
+        <button id="friends" class="btn ghost" type="button">Play with friends</button>
+        <a id="to-venue" class="btn ghost" href="./expo.html">Visit the Mumbai venue</a>
+      </div>
+      <p id="mp-room" class="cc-room" hidden>Joining room <b></b> with friends</p>
+      <p class="title-note">No wallet or sign-up needed to explore. Payments use Whitechain <b>testnet</b> USDT or <b>DEMO</b> credits; rupee amounts are quoted equivalents only.</p>
+    </div>
+  </section>
+
+  <!-- Avatar creator: the live preview is your courier, in the world, behind this card -->
+  <section id="creator" hidden aria-labelledby="cr-h">
+    <form class="creator" id="courier" onsubmit="return false">
+      <header class="cr-head"><h2 id="cr-h">Your courier</h2><button id="cr-random" class="btn small ghost" type="button" title="Shuffle clothes and colours (keeps your face)">Shuffle</button></header>
+      <p class="cr-id"><span id="cr-id"></span> <button id="cr-world" class="linkish" type="button" hidden>Verify with World ID</button> <button id="cr-signout" class="linkish" type="button" hidden>Sign out</button></p>
+      <div class="cr-start" role="group" aria-label="Start your avatar">
+        <button id="cr-selfie" class="chip" type="button">📷 Take selfie</button>
+        <button id="cr-photo" class="chip" type="button">🖼 Upload photo</button>
+        <button id="cr-manual" class="chip" type="button">✎ Create manually</button>
+        <button id="cr-skip" class="chip" type="button">Skip · play as guest</button>
+      </div>
+      <label class="cc-name">Name <input id="mp-name" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="KAI"></label>
+      <div class="cr-tabs" role="tablist">
+        <button type="button" role="tab" data-tab="face" aria-selected="true">Face</button>
+        <button type="button" role="tab" data-tab="eyes" aria-selected="false">Eyes</button>
+        <button type="button" role="tab" data-tab="hair" aria-selected="false">Hair</button>
+        <button type="button" role="tab" data-tab="outfit" aria-selected="false">Outfit</button>
+        <button type="button" role="tab" data-tab="extras" aria-selected="false">Accessories</button>
+        <button type="button" role="tab" data-tab="pet" aria-selected="false">Pet</button>
+      </div>
+      <div class="cr-panel" id="cr-panel" role="tabpanel"></div>
+      <p class="cr-hint">Drag anywhere in the world to turn your courier around.</p>
+      <div class="cr-save-row"><button id="cr-save" class="btn small" type="button">Save avatar</button><button id="cr-regen" class="btn small ghost" type="button" title="Go back to the likeness made from your photo">Regenerate from selfie</button><button id="cr-reset" class="btn small ghost" type="button">Reset</button></div>
+      <div class="title-actions">
+        <button id="start" class="btn" type="button">Play as Guest</button>
+        <button id="wallet-play" class="btn ghost" type="button">Connect Wallet</button>
+      </div>
+      <p class="cr-foot"><button id="cr-back" class="linkish" type="button">← Back</button><label id="cr-over-wrap" hidden><input type="checkbox" id="cr-over"> start the story over</label></p>
+    </form>
   </section>
 
   <!-- HUD -->
   <div id="hud" hidden>
     <p id="objective" hidden><svg viewBox="0 0 24 18" aria-hidden="true"><rect x="1.5" y="1.5" width="21" height="15" rx="1.5" fill="#FBF3E4" stroke="#2B2230" stroke-width="1.8"/><path d="M2 2.5l10 7.5 10-7.5" fill="none" stroke="#2B2230" stroke-width="1.8"/></svg><span id="objective-text"></span></p>
+    <button id="royale-hud" class="royale-hud" type="button" title="Bounty Royale: the live prediction arena">Bounty Royale</button>
     <button id="sound" type="button" title="Sound on" aria-label="Toggle sound"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="#FBF3E4" stroke="#2B2230" stroke-width="1.8" stroke-linejoin="round"/><path class="wave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" fill="none" stroke="#2B2230" stroke-width="1.8" stroke-linecap="round"/></svg></button>
     <button id="satchel-btn" type="button" aria-label="Open satchel (Tab)" aria-controls="satchel">
       <svg viewBox="0 0 48 44" aria-hidden="true"><path d="M14 12c0-6 20-6 20 0" fill="none" stroke="#2B2230" stroke-width="2.6"/><path d="M6 14h36l-3 25H9z" fill="#B98A5E" stroke="#2B2230" stroke-width="2.6" stroke-linejoin="round"/><path d="M6 14l2 11h32l2-11" fill="#8A5A3B" stroke="#2B2230" stroke-width="2.6" stroke-linejoin="round"/><rect x="21" y="22" width="6" height="7" rx="1" fill="#D2A44A" stroke="#2B2230" stroke-width="2"/></svg>
