@@ -19,6 +19,9 @@ import { buildStations } from "./stations.js";
 import { buildTent } from "./tent.js";
 import { createPanel } from "./panel.js";
 import { arrivalForSlot, resumePosition } from './presence.js';
+import { buildRoyale } from "./royale.js";
+import { createArena } from "../royale/arena.js";
+import { fetchHuman, human } from "../final/gate.js";
 
 const $ = (s) => document.querySelector(s);
 const MOBILE = matchMedia("(pointer: coarse)").matches;
@@ -85,6 +88,7 @@ const venue = buildVenue(scene);
 const stage = buildStage(scene);
 const corridor = buildStations(scene);
 const tent = buildTent(scene);
+const royale = buildRoyale(scene);
 $("#loading").classList.add("gone");
 setTimeout(() => $("#loading").remove(), 600);
 
@@ -105,6 +109,12 @@ function setLook(look) {
   syncPet(scene, holder, kai.look.pet);
 }
 setLook(me.look);
+// A World ID-verified human wears the avatar the server randomized for them (same as in Blockhaven).
+await fetchHuman();
+if (human.current?.look) {
+  me.look = { ...(me.look || {}), ...human.current.look };
+  setLook(me.look);
+}
 const R_PLAYER = 0.42;
 
 // ------------------------------------------------------------------ input
@@ -256,7 +266,10 @@ function updateCamera(dt) {
 // ------------------------------------------------------------------ interactions
 const hint = $("#prompt");
 let near = null;
+// Bounty Royale opens only here: inside Pavilion 2's arena, by pressing E (or the E button).
+const arena = createArena({ getName: () => me.name || "Courier", onOpen: () => keys.clear(), onClose: () => keys.clear(), socket: royale.socket });
 const INTERACT = [
+  { key: "royale", at: () => (royale.inArena(me.x, me.z) ? { x: me.x, z: me.z } : { x: L.TENT.x, z: L.TENT.z + L.TENT.d / 2 }), range: 2.6, label: "Press E — Open Bounty Royale", run: () => arena.open() },
   { at: () => ({ x: L.BOUNDS.x1 - 2.2, z: L.VILLAGE_DOOR.z }), range: 3.4, label: "Go back to Blockhaven village", run: () => (location.href = `./index.html${location.search}`) },
   { at: () => ({ x: L.SPAWN.x, z: 5.6 }), range: 2.8, label: "Read the venue guide", run: () => map.open() },
   ...L.PAVILIONS.filter((p) => !p.open).map((p) => ({ at: () => ({ x: p.cx, z: -2.2 }), range: 4.5, label: `${p.name}: ${p.theme} (opening soon)`, run: () => toast(p.blurb, 5200) })),
@@ -308,7 +321,7 @@ const net = createNet({
   worldName: "the venue",
   onJoin(res) {
     if (placedOnJoin) return; // a transport reconnect must not move a walking player
-    const p = (res.resumed && resumePosition(res.state)) || arrivalForSlot(res.spawnSlot);
+    const p = (res.resumed && resumePosition(res.state)) || lastPosition() || arrivalForSlot(res.spawnSlot);
     Object.assign(me, p, { y: p.y ?? L.groundAt(p.x, p.z), speed: 0 });
     placedOnJoin = true;
   },
@@ -320,6 +333,27 @@ const net = createNet({
   },
   local: () => ({ d: L.encodePos(me.x, me.z), f: [Math.sin(me.yaw), 0, Math.cos(me.yaw)], h: me.y, sp: me.speed, air: !me.grounded, talk: false, hold: false }),
 });
+
+// The most recent valid location survives a refresh or a dropped connection (this tab only).
+const POS_KEY = "omen.expo.pos";
+function lastPosition() {
+  try {
+    const s = JSON.parse(sessionStorage.getItem(POS_KEY) || "null");
+    if (!s || Date.now() - s.at > 30 * 60_000) return null;
+    const p = resumePosition({ d: L.encodePos(s.x, s.z), h: s.y });
+    return p && { ...p, yaw: Number.isFinite(s.yaw) ? s.yaw : L.SPAWN.yaw };
+  } catch {
+    return null;
+  }
+}
+setInterval(() => {
+  if (mode !== "play") return;
+  try {
+    sessionStorage.setItem(POS_KEY, JSON.stringify({ x: me.x, z: me.z, y: me.y, yaw: me.yaw, at: Date.now() }));
+  } catch {
+    /* storage blocked */
+  }
+}, 1000);
 
 // ------------------------------------------------------------------ map and quick travel
 const map = createMap({
@@ -441,11 +475,11 @@ function begin() {
   $("#hud").hidden = false;
   mode = "play";
   net.join({ room, name, look: kai.look });
-  toast("Welcome to the arrival hall. Main Stage is through the west portal (or press 1).", 4200);
+  toast(params.has("royale") ? "Bounty Royale is in Pavilion 2: walk straight ahead through the middle portal, to the orange canopy." : "Welcome to the arrival hall. Main Stage is through the west portal (or press 1).", 5200);
 }
 $("#ex-name").value = me.name;
 $("#ex-form").onsubmit = (e) => (e.preventDefault(), begin());
-if (params.has("auto")) begin(); // tests and kiosk mode
+if (params.has("auto") || (params.has("royale") && me.name)) begin(); // tests, kiosk mode, and arrivals from ENTER BOUNTY ROYALE
 
 // ------------------------------------------------------------------ loop
 cam.orbit = me.yaw - Math.PI;
@@ -458,7 +492,8 @@ let probe = null;
 renderer.setAnimationLoop(() => {
   const dt = Math.min(0.05, clock.getDelta());
   const t = clock.elapsedTime;
-  busy = map.isOpen || panel.isOpen;
+  busy = map.isOpen || panel.isOpen || arena.isOpen;
+  if (busy) keys.clear(); // typing in an overlay never walks the courier
   move(dt);
   kai.update(dt, t);
   holder.pet?.update(dt, kai.group, me.speed);
@@ -492,6 +527,8 @@ window.__expo = {
   corridor,
   tent,
   panel,
+  royale,
+  arena,
   interactAt: () => near?.key || near?.label || null,
   get mode() {
     return mode;

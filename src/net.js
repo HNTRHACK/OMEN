@@ -13,7 +13,10 @@ const SEND_HZ = 12;
 // third of the rate, no pet. Far: the character is hidden and drawn as one shared instanced
 // stand-in (one draw call for every far player together).
 export const LOD = { near: 28, far: 60 };
-const MAX_PROXIES = 128;
+const MAX_PROXIES = 256;
+// At most this many remote couriers are drawn as full characters; the rest (farthest first) become
+// instanced stand-ins, so a 200-player world stays playable on phones and average laptops.
+export const MAX_FULL_AVATARS = matchMedia?.("(pointer: coarse)").matches ? 30 : 45;
 
 /** Default placement: on the planet's surface. Other worlds (the expo hall) pass their own. */
 export function planetPlace(group, d, f, h) {
@@ -80,7 +83,7 @@ class Remote {
     const h = a.h + (c.h - a.h) * k;
     const g = this.c.group;
     this.place(g, d, f, h);
-    const dist = g.position.distanceTo(camera.position);
+    const dist = (this.dist = g.position.distanceTo(camera.position));
     this.tier = dist < LOD.near ? "near" : dist < LOD.far ? "mid" : "far";
     g.visible = this.tier !== "far";
     if (this.pet) this.pet.group.visible = this.tier === "near";
@@ -153,6 +156,7 @@ export function createNet({ scene, camera, local, feed, onCount = () => {}, onJo
       sock.emit("join", { room, name, look, token: guestToken(), state: local() }, (res) => {
         if (res?.error) { joined = false; count(); return feed(res.error); }
         const resumed = res.id === me;
+        if (res.room) room = res.room; // the server may place us in an overflow shard of a full public world
         me = res.id;
         joined = true;
         online = res.online ?? res.players.length + 1;
@@ -195,6 +199,15 @@ export function createNet({ scene, camera, local, feed, onCount = () => {}, onJo
       count();
     });
     sock.on("state", (s) => remotes.get(s.id)?.push(s));
+    // batched movement from the server's world tick (nearby players every tick, distant ones less often)
+    sock.on("states", (list) => {
+      if (!Array.isArray(list)) return;
+      for (const s of list) {
+        if (!Array.isArray(s) || s.length < 10) continue;
+        // compact wire form: [id, dx, dy, dz, fx, fy, fz, h, sp, flags]
+        remotes.get(s[0])?.push({ id: s[0], d: [s[1], s[2], s[3]], f: [s[4], s[5], s[6]], h: s[7], sp: s[8], air: !!(s[9] & 1), talk: !!(s[9] & 2), hold: !!(s[9] & 4) });
+      }
+    });
     for (const [ev, fn] of handlers) sock.on(ev, fn); // app-level events (shops, forum, billboards)
     sock.on("look", (l) => remotes.get(l.id)?.setLook(l.name, l.look));
     // World ID accounts: saved profile changes and badge state come from the server
@@ -269,8 +282,22 @@ export function createNet({ scene, camera, local, feed, onCount = () => {}, onJo
     },
     update(dt, t) {
       let n = 0;
+      const shown = [];
       for (const r of remotes.values()) {
         r.update(dt, t, camera);
+        if (r.tier !== "far") shown.push(r);
+      }
+      if (shown.length > MAX_FULL_AVATARS) {
+        // distance culling: keep the nearest; demote the rest to stand-ins (and hide their tags)
+        shown.sort((a, b) => a.dist - b.dist);
+        for (const r of shown.slice(MAX_FULL_AVATARS)) {
+          r.tier = "far";
+          r.c.group.visible = false;
+          r.tag.hidden = true;
+          if (r.pet) r.pet.group.visible = false;
+        }
+      }
+      for (const r of remotes.values()) {
         if (r.tier === "far" && r.buf.length && n < MAX_PROXIES) {
           const g = r.c.group;
           pm.compose(g.localToWorld(new THREE.Vector3(0, 0.98, 0)), g.quaternion, g.scale);

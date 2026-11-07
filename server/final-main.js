@@ -12,7 +12,6 @@ import { mountFinalRoutes } from "./final-routes.js";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT || 8787);
 const final = createFinalBlock();
-mountFinalRoutes(final);
 
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".glb": "model/gltf-binary", ".wasm": "application/wasm", ".woff2": "font/woff2", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".webp": "image/webp", ".ico": "image/x-icon" };
 async function serveStatic(pathname, res) {
@@ -33,10 +32,14 @@ if (process.env.DATABASE_URL) {
   const notifier = createNotifier();
   const app = createGateway({ onChange: notifier.onChange, notify: notifier.notify });
   await app.ready;
+  mountFinalRoutes(final, { database: app.database });
+  await final.royale?.ready;
   const server = createServer(async (req, res) => (await final(req, res)) || app(req, res));
+  final.royale?.attach(server);
   notifier.attach(server, app.community, app.database, app.worldIdentity);
   server.listen(PORT, "0.0.0.0", () => logStatus(`on http://localhost:${PORT} (+ final block)`));
 } else {
+  mountFinalRoutes(final);
   const server = createServer(async (req, res) => {
     if (await final(req, res)) return;
     if (req.url.startsWith("/api/")) return res.writeHead(503, { "content-type": "application/json" }).end(JSON.stringify({ error: "lite_mode", message: "This route needs the full backend (DATABASE_URL)." }));

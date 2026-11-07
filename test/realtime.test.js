@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { io as connect } from "socket.io-client";
-import { attachRealtime, cleanName, cleanState, checkMerchantKey, merchantKeys } from "../server/realtime.js";
+import { attachRealtime, cleanName, cleanState, checkMerchantKey, merchantKeys, SCALE } from "../server/realtime.js";
 import { sign, verifyWebhook, createWebhooks, parseHooks } from "../server/webhooks.js";
 import { toCsv } from "../server/index.js";
 
@@ -35,11 +35,12 @@ test("two players in a room see each other join, move, interact", async () => {
   assert.equal((await joined).name, "Ravi");
   assert.equal(b.ack.players[0].name, "Asha");
 
-  const st = once(a.s, "state");
+  const st = once(a.s, "states"); // batched by the server's world tick
   b.s.emit("state", { d: [0, 1.2, 0], f: [1, 0, 0], h: 0.4, sp: 3.5, air: true }); // slightly off-unit
-  const got = await st;
-  assert.equal(got.id, b.ack.id);
-  assert.deepEqual(got.d, [0, 1, 0], "server normalises the position vector");
+  const [w] = await st; // compact: [id, dx, dy, dz, fx, fy, fz, h, sp, flags]
+  assert.equal(w[0], b.ack.id);
+  assert.deepEqual(w.slice(1, 4), [0, 1, 0], "server normalises the position vector");
+  assert.equal(w[9] & 1, 1, "air flag");
 
   const act = once(a.s, "act");
   b.s.emit("act", { kind: "talk", target: "maya" });
@@ -52,7 +53,7 @@ test("rooms are isolated; junk and payment details are never relayed", async () 
   const a = await player("room-a", "A");
   const c = await player("room-b", "C");
   let leaked = 0;
-  a.s.on("state", () => leaked++);
+  a.s.on("states", () => leaked++);
   c.s.emit("state", { d: [0, 1, 0], f: [1, 0, 0] });
   const b = await player("room-a", "B");
   b.s.emit("state", { d: ["x", 1, 0], f: [1, 0, 0] }); // junk
@@ -64,7 +65,7 @@ test("rooms are isolated; junk and payment details are never relayed", async () 
   let unknown = 0;
   a.s.on("act", () => unknown++);
   b.s.emit("act", { kind: "rm -rf", target: "maya" });
-  await pause(150);
+  await pause(250); // > one world tick
   assert.equal(leaked, 0, "nothing from room-b and no junk state");
   assert.equal(unknown, 0, "unknown interaction kinds are dropped");
   for (const p of [a, b, c]) p.s.close();
@@ -232,4 +233,43 @@ test("looks are validated and broadcast; junk becomes defaults", async () => {
   assert.equal(l.look.hat, 0);
   a.s.close();
   b.s.close();
+});
+
+test("interest management: nearby movers every tick, distant movers only on the slow far tick", async () => {
+  const a = await player("interest-1", "A");
+  const b = await player("interest-1", "B");
+  const c = await player("interest-1", "C");
+  a.s.emit("state", { d: [0, 1, 0], f: [1, 0, 0] });
+  c.s.emit("state", { d: [0, -1, 0], f: [1, 0, 0] }); // the far side of the planet
+  b.s.emit("state", { d: [0.05, 1, 0], f: [1, 0, 0] }); // ~1.6 m away
+  await pause(SCALE.tickMs * (SCALE.farEvery + 2)); // let the opening burst settle
+  const seen = [];
+  a.s.on("states", (list) => seen.push(...list.map((x) => [x[0], Date.now()])));
+  const t0 = Date.now();
+  b.s.emit("state", { d: [0.06, 1, 0], f: [1, 0, 0] });
+  c.s.emit("state", { d: [0.01, -1, 0], f: [1, 0, 0] });
+  await pause(SCALE.tickMs * (SCALE.farEvery + 2));
+  const nearAt = seen.find(([id]) => id === b.ack.id)?.[1];
+  const farAt = seen.find(([id]) => id === c.ack.id)?.[1];
+  assert.ok(nearAt && nearAt - t0 <= SCALE.tickMs * 2 + 50, "nearby mover arrives within ~a tick");
+  assert.ok(farAt, "distant mover still arrives (for distant stand-ins)");
+  assert.equal(seen.filter(([id]) => id === a.ack.id).length, 0, "nobody is sent their own state");
+  for (const p of [a, b, c]) p.s.close();
+});
+
+test("a full public world overflows into shards; private rooms keep their own cap", async () => {
+  const saved = [SCALE.publicRoomMax, SCALE.privateRoomMax];
+  SCALE.publicRoomMax = 2;
+  SCALE.privateRoomMax = 1;
+  try {
+    const ps = [];
+    for (let i = 0; i < 3; i++) ps.push(await player("blockhaven", `P${i}`, { token: (String(i) + "a").repeat(32) }));
+    assert.deepEqual(ps.map((p) => p.ack.room), ["blockhaven", "blockhaven", "blockhaven-2"]);
+    const x = await player("tiny-room", "X");
+    const y = await player("tiny-room", "Y");
+    assert.ok(x.ack.id && y.ack.code === "room_full");
+    for (const p of [...ps, x, y]) p.s.close();
+  } finally {
+    [SCALE.publicRoomMax, SCALE.privateRoomMax] = saved;
+  }
 });

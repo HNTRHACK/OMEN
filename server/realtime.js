@@ -17,7 +17,20 @@ import { attachBtcInr } from './btcinr-realtime.js';
 export const ROOM_RE = /^[a-z0-9][a-z0-9-]{2,23}$/;
 export const OUTFITS = 6;
 const RECONNECT_GRACE_MS = 10_000;
-const MAX_PER_ROOM = 16;
+// Population + interest management (all configurable; see docs/MULTIPLAYER-SCALE.md).
+const envNum = (k, d) => (Number.isFinite(Number(process.env[k])) && process.env[k] !== '' && process.env[k] !== undefined ? Number(process.env[k]) : d);
+export const SCALE = {
+  publicRooms: new Set(String(process.env.OMEN_PUBLIC_ROOMS || 'blockhaven,omen-expo').split(',').map((r) => r.trim()).filter(Boolean)),
+  publicRoomMax: envNum('OMEN_PUBLIC_ROOM_MAX', 200), // players per public shard
+  privateRoomMax: envNum('OMEN_PRIVATE_ROOM_MAX', 16), // invite rooms stay small
+  publicShards: envNum('OMEN_PUBLIC_SHARDS', 4), // a full public world overflows into blockhaven-2, -3, …
+  tickMs: envNum('OMEN_WORLD_TICK_MS', 100), // movement is batched and sent 10×/s
+  interestM: envNum('OMEN_INTEREST_M', 45), // full-rate updates within this arc distance (planet R = 32 m)
+  nearMax: envNum('OMEN_NEAR_MAX', 30), // …but at most this many nearest movers per player at full rate
+  farEvery: envNum('OMEN_FAR_EVERY', 10), // everyone else: every 10th tick (1×/s), enough for distant stand-ins
+  planetR: 32,
+};
+const roomMax = (room) => (SCALE.publicRooms.has(room.replace(/-\d+$/, '')) ? SCALE.publicRoomMax : SCALE.privateRoomMax);
 const ACTS = {
   talk: new Set(["maya", "orin", "echo", "relay", "board", "alfred"]),
   scan: new Set(["maya-chai", "orin-relay"]),
@@ -43,10 +56,10 @@ export function cleanState(s) {
   const len = Math.hypot(...s.d);
   const flen = Math.hypot(...s.f);
   if (len < 0.5 || len > 1.5 || flen < 0.1) return null;
-  const r = (x) => Math.round(x * 1e5) / 1e5;
+  const r = (x, q) => Math.round(x * q) / q; // 1e-4 × 32 m ≈ 3 mm: plenty, and shorter on the wire
   return {
-    d: s.d.map((x) => r(x / len)),
-    f: s.f.map((x) => r(x / flen)),
+    d: s.d.map((x) => r(x / len, 1e4)),
+    f: s.f.map((x) => r(x / flen, 1e3)),
     h: Math.max(0, Math.min(3, Number(s.h) || 0)),
     sp: Math.max(0, Math.min(8, Number(s.sp) || 0)),
     air: !!s.air,
@@ -185,7 +198,7 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
       if (typeof ack !== "function" || me || joining) return;
       joining = true;
       try {
-      const room = String(msg?.room || "").toLowerCase();
+      let room = String(msg?.room || "").toLowerCase();
       if (!ROOM_RE.test(room)) return ack({ error: "Room codes are 3–24 letters, digits or dashes." });
       const token = typeof msg?.token === "string" && TOKEN_RE.test(msg.token) ? msg.token : null;
       const resumeValue = typeof msg?.resume === "string" && ID_RE.test(msg.resume) ? msg.resume : null;
@@ -195,6 +208,12 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
       const identity = worldIdentity ? await worldIdentity.resolveRequest(request) : null;
       const owned = identity?.accountId ? await worldIdentity.ownAvatar(request) : null;
       if (!sock.connected) return;
+      // A full public world overflows into shards (blockhaven-2, …); returning players find their own.
+      const resumeId = identity?.avatarId || (token ? playerIdOf(token) : null);
+      if (SCALE.publicRooms.has(room)) {
+        const shards = Array.from({ length: Math.max(1, SCALE.publicShards) }, (_, i) => (i ? `${room}-${i + 1}` : room));
+        room = shards.find((r) => resumeId && rooms.get(r)?.has(resumeId)) || shards.find((r) => (rooms.get(r)?.size || 0) < roomMax(r)) || room;
+      }
       if (!rooms.has(room)) rooms.set(room, new Map());
       const players = rooms.get(room);
       const look = owned ? owned.avatar.look : msg?.look ? cleanLook(msg.look) : lookFromOutfit(Math.abs(Math.trunc(Number(msg?.outfit) || 0)) % OUTFITS);
@@ -217,7 +236,7 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
         if (token || owned) Object.assign(me, { name, look });
         if (changed && (token || owned)) sock.to(room).emit("look", { id: me.id, name: me.name, look: me.look });
       } else {
-        if (players.size >= MAX_PER_ROOM) return ack({ error: "This room is full." });
+        if (players.size >= roomMax(room)) return ack({ error: "This room is full.", code: "room_full" });
         const occupied = new Set([...players.values()].map((p) => p.spawnSlot));
         let spawnSlot = 0;
         while (occupied.has(spawnSlot)) spawnSlot++;
@@ -277,7 +296,7 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
       const c = cleanState(s);
       if (!c) return;
       me.s = c;
-      sock.to(me.room).volatile.emit("state", { id: me.id, ...c });
+      me.dirty = me.farDirty = true; // sent by the world tick, to nearby players first
     });
 
     sock.on("act", (a) => {
@@ -314,6 +333,65 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
       });
     });
   });
+  // ---------------------------------------------------------------- world tick (interest management)
+  // One batched "states" message per player per tick instead of one message per movement packet per
+  // player (O(N²) messages). Nearby movers every tick; distant movers every `farEvery` ticks.
+  const stats = { ticks: 0, statesSent: 0, entriesSent: 0, bytesSent: 0, lastTickMs: 0 };
+  const cosNear = Math.cos(SCALE.interestM / SCALE.planetR);
+  // compact wire form: [id, dx, dy, dz, fx, fy, fz, h, sp, flags(air 1 | talk 2 | hold 4)]
+  const wire = (p) => {
+    const c = p.s;
+    return [p.id, ...c.d, ...c.f, Math.round(c.h * 100) / 100, Math.round(c.sp * 10) / 10, (c.air ? 1 : 0) | (c.talk ? 2 : 0) | (c.hold ? 4 : 0)];
+  };
+  const tick = setInterval(() => {
+    const t0 = performance.now();
+    stats.ticks++;
+    const farTick = stats.ticks % SCALE.farEvery === 0;
+    for (const players of rooms.values()) {
+      if (players.size < 2) {
+        for (const p of players.values()) p.dirty = p.farDirty = false;
+        continue;
+      }
+      const near = [];
+      const far = [];
+      for (const p of players.values()) {
+        if (!p.s) continue;
+        if (p.dirty) near.push(p);
+        if (farTick && p.farDirty) far.push(p);
+      }
+      if (!near.length && !far.length) continue;
+      const encoded = new Map(); // encode each mover once per tick
+      const enc = (p) => encoded.get(p) || (encoded.set(p, wire(p)), encoded.get(p));
+      for (const to of players.values()) {
+        if (!to.sock) continue;
+        const sock = world.sockets.get(to.sock);
+        if (!sock?.connected) continue;
+        const d = to.s?.d; // no position yet (just joined): treat everyone as nearby
+        const dot = (p) => (d ? p.s.d[0] * d[0] + p.s.d[1] * d[1] + p.s.d[2] * d[2] : 1);
+        let close = [];
+        for (const p of near) if (p !== to) {
+          const k = dot(p);
+          if (k >= cosNear) close.push([k, p]);
+        }
+        if (close.length > SCALE.nearMax) close = close.sort((a, b) => b[0] - a[0]).slice(0, SCALE.nearMax); // the nearest only
+        const out = close.map(([, p]) => enc(p));
+        if (farTick) {
+          const sentNow = new Set(close.map(([, p]) => p));
+          for (const p of far) if (p !== to && !sentNow.has(p)) out.push(enc(p)); // everyone else, slowly
+        }
+        if (!out.length) continue;
+        sock.volatile.emit('states', out);
+        stats.statesSent++;
+        stats.entriesSent += out.length;
+      }
+      for (const p of near) p.dirty = false;
+      if (farTick) for (const p of far) p.farDirty = false;
+    }
+    stats.lastTickMs = performance.now() - t0;
+  }, SCALE.tickMs);
+  tick.unref();
+  httpServer.once('close', () => clearInterval(tick));
+
   const pub = (p) => ({ id: p.id, avatarId: p.id, name: p.name, look: p.look, outfit: p.look.jacket, s: p.s, verifiedHuman: !!p.verifiedHuman, avatarRevision: p.avatarRevision ?? null });
 
   // ---------------------------------------------------------------- merchant notifications
@@ -328,6 +406,7 @@ export function attachRealtime(httpServer, { merchantAccess = merchantKeys(), is
 
   return {
     io,
+    worldStats: () => ({ ...stats, rooms: [...rooms].map(([r, ps]) => ({ room: r, players: ps.size })), sockets: world.sockets.size }),
     /** Call on every payment change; merchants hear about their own testnet/demo payments. */
     notifyPayment(p) {
       if (!p.merchant?.id) return;

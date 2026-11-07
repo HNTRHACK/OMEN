@@ -12,7 +12,6 @@ const gateway = () => ({
   async configureServer(server) {
     const { createFinalBlock } = await import(new URL("./server/final-block.js", import.meta.url).href);
     const { mountFinalRoutes } = await import(new URL("./server/final-routes.js", import.meta.url).href);
-    const final = mountFinalRoutes(createFinalBlock());
     let handle = null;
     if (process.env.DATABASE_URL) {
       // Plain Node import: the gateway is ordinary server code, not something Vite should transform.
@@ -37,6 +36,12 @@ const gateway = () => ({
       if (server.httpServer) attachRealtime(server.httpServer);
       console.log("[omen] no DATABASE_URL: Final Block routes and guest multiplayer only; database APIs unavailable");
     }
+    // Final Block routes; Bounty Royale (server-authoritative points) mounts only with the database.
+    const final = mountFinalRoutes(createFinalBlock(), { database: handle?.database });
+    if (final.royale && server.httpServer) {
+      await final.royale.ready;
+      final.royale.attach(server.httpServer);
+    }
     server.middlewares.use(async (req, res, next) => {
       if (!req.url.startsWith("/api/") && !req.url.startsWith("/uploads/")) return next();
       if (await final(req, res)) return;
@@ -60,7 +65,7 @@ export default defineConfig(({ mode }) => {
       target: "es2022",
       chunkSizeWarningLimit: 1500,
       // pages: the game, a merchant's ledger (its own device), moderation, and the Mumbai venue
-      rollupOptions: { input: { main: "index.html", merchant: "merchant.html", moderate: "moderate.html", expo: "expo.html", pay: "pay.html" } },
+      rollupOptions: { input: { main: "index.html", merchant: "merchant.html", moderate: "moderate.html", expo: "expo.html", pay: "pay.html", royaleAdmin: "royale-admin.html" } },
     },
   };
 });

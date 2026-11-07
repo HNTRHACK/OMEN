@@ -1,6 +1,6 @@
 // Two independent browsers (separate processes and profiles) join one room via the invite URL.
 // Usage: node e2e/multiplayer.mjs http://localhost:5173/
-import { launch, enter, finish, BASE } from "./lib.mjs";
+import { launch, enter, finish, BASE, passGate } from "./lib.mjs";
 
 const ROOM = `e2e-${Date.now().toString(36)}`;
 const url = `${BASE.replace(/\/$/, "")}/?room=${ROOM}`;
@@ -92,6 +92,7 @@ console.log(`RECONNECT: back=${back} ravis=${after.length} sameId=${after[0]?.id
 
 // 4b. B refreshes the page: same courier comes back (stable guest identity), look intact
 await B.page.reload();
+await passGate(B.page); // "Only humans play OMEN" comes before the title
 await B.page.waitForSelector("#continue:not([hidden])", { timeout: 120000 });
 await B.page.click("#continue");
 await B.page.waitForFunction(() => window.__omen?.mode === "play", null, { timeout: 60000 });

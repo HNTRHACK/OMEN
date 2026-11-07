@@ -42,7 +42,8 @@ export async function enter(browser, url = BASE, { name, outfit, look, viewport 
   if (name) await page.fill("#mp-name", name);
   const want = { ...(look || {}), ...(outfit != null ? { jacket: outfit } : {}) };
   for (const [k, i] of Object.entries(want)) {
-    const tab = { skin: "look", hair: "look", hairStyle: "look", body: "look", jacket: "outfit", pants: "outfit", scarf: "outfit", hat: "outfit", hatColor: "outfit", accessory: "extras", pet: "extras" }[k];
+    // mirrors CREATOR_TABS in src/main.js (Face / Eyes / Hair / Outfit / Accessories / Pet)
+    const tab = { skin: "face", hair: "hair", hairStyle: "hair", body: "outfit", jacket: "outfit", pants: "outfit", scarf: "outfit", hat: "outfit", hatColor: "outfit", accessory: "extras", pet: "pet" }[k];
     await page.click(`.cr-tabs [data-tab="${tab}"]`);
     await page.click(`[data-k="${k}"][data-i="${i}"]`);
   }

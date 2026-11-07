@@ -388,8 +388,28 @@ export function createGateway({ onChange = () => {}, notify = { player() {}, all
   const handle = createApp({ service, publicConfig, store, commerce, community, alfred, database, auth: createAuth(database), worldIdentity, btcinr });
   const ready = database.verifyReady(legacyDir);
   ready.catch(() => {}); // start() or the request handler reports startup failures
+  // A failed check is re-run (the same full check, at most every 2 s) instead of being cached forever:
+  // a server that started while `manage.js migrate`/`import` was still running recovers once they finish.
+  let current = ready;
+  let checkedAt = Date.now();
+  let passed = false;
+  ready.then(() => { passed = true; }, () => {});
+  const whenReady = async () => {
+    if (passed) return;
+    try {
+      await current;
+      passed = true;
+    } catch (e) {
+      if (Date.now() - checkedAt < 2000) throw e;
+      checkedAt = Date.now();
+      current = database.verifyReady(legacyDir);
+      current.catch(() => {});
+      await current;
+      passed = true;
+    }
+  };
   const app = async (req, res) => {
-    try { await ready; }
+    try { await whenReady(); }
     catch { res.writeHead(503, { 'content-type': 'application/json', 'cache-control': 'no-store' }); return res.end(JSON.stringify({ error: 'backend_not_ready', message: 'Database migrations and legacy import must complete before serving.' })); }
     return handle(req, res);
   };

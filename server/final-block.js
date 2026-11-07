@@ -9,6 +9,7 @@ import { randomBytes, createHash } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { verifyMessage, getAddress, isAddress } from "viem";
+import { randomLook, cleanLook } from "../shared/look.js";
 import { ROOT } from './env.js';
 
 const env = process.env;
@@ -71,6 +72,8 @@ export function fileStore(file) {
   return { db, save };
 }
 
+/** Crypto-random [0,1) for avatar picks, so crowds don't repeat Math.random's sequence across restarts. */
+const lookRand = () => () => randomBytes(4).readUInt32BE() / 2 ** 32;
 const sha = (s) => createHash("sha256").update(s).digest("hex");
 
 export function createFinalBlock({ config = finalConfig(), store = fileStore(config.dataFile), fetchImpl = fetch, signRequestImpl = null, now = Date.now } = {}) {
@@ -92,6 +95,7 @@ export function createFinalBlock({ config = finalConfig(), store = fileStore(con
       environment: h.environment,
       level: h.level,
       wallet: h.wallet || null,
+      look: cleanLook(h.look || {}),
       verifiedAt: h.verifiedAt,
       // The VERIFIED HUMAN badge is only for a production proof World confirmed. Staging = simulator.
       badge: h.environment === "production" ? "VERIFIED HUMAN" : "STAGING SIMULATOR (not a real World ID)",
@@ -134,7 +138,9 @@ export function createFinalBlock({ config = finalConfig(), store = fileStore(con
 
     let human = db.humans[key];
     const returning = !!human;
-    if (!human) human = db.humans[key] = { playerId: "h_" + sha(key).slice(0, 20), environment: config.environment, level, verifiedAt: now(), wallet: null };
+    // A randomized avatar, chosen once when this identity is first created (never from World ID data).
+    if (!human) human = db.humans[key] = { playerId: "h_" + sha(key).slice(0, 20), environment: config.environment, level, verifiedAt: now(), wallet: null, look: randomLook(lookRand()) };
+    if (!human.look) human.look = randomLook(lookRand());
     const token = randomBytes(32).toString("hex");
     db.sessions[sha(token)] = { nullifier: key, createdAt: now(), expiresAt: now() + SESSION_DAYS * 864e5 };
     for (const [h, s] of Object.entries(db.sessions)) if (s.expiresAt < now()) delete db.sessions[h];

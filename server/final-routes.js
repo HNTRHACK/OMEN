@@ -8,6 +8,7 @@
 import { createPublicClient, createWalletClient, http, parseAbi, parseEventLogs, verifyTypedData, getAddress, isAddress, defineChain } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { readFileSync } from "node:fs";
+import { createRoyale } from "./royale.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,7 +17,13 @@ export const CHAIPAY = { ...C, rpc: process.env.WHITECHAIN_RPC || "https://rpc.t
 
 const ORDER_OPENED = parseAbi(["event OrderOpened(uint256 indexed orderId, address indexed payer, bytes32 indexed payeeHash, uint64 inrPaise, uint128 usdtAmount)"]);
 
-export function mountFinalRoutes(final, { fetchImpl = fetch, chain = null, relayerUrl = final.config.chaipayUrl } = {}) {
+export function mountFinalRoutes(final, { fetchImpl = fetch, chain = null, relayerUrl = final.config.chaipayUrl, database = null } = {}) {
+  // Bounty Royale (free OMEN points, server-authoritative) needs PostgreSQL.
+  if (database) {
+    final.royale = createRoyale({ pool: database.pool, database, sessionOf: final.sessionOf });
+    final.royale.mount(final);
+    final.royale.ready = final.royale.seed().catch((e) => console.error("[royale] seed failed:", e.message));
+  }
   const { HttpError } = final;
   const pub = chain || createPublicClient({ transport: http(CHAIPAY.rpc) });
 

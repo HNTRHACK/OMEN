@@ -32,6 +32,7 @@ import { tutorialPayment } from "./final/tutorial-pay.js";
 import { showChaiReceipt } from "./final/receipt.js";
 import { createMumbai } from "./final/mumbai.js";
 import { createBooths, loadMarkets, boothName } from "./final/booths.js";
+import { human } from "./final/gate.js";
 import "./style.css";
 
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1547,17 +1548,42 @@ const mumbai = createMumbai({
   onArrive: () => ui.objective("Visit the prediction booths · testnet only"),
 });
 
+// Bounty Royale lives in its own world: the Mumbai venue (expo.html). Walk to Pavilion 2 to play.
+// The village story is saved first, so coming back resumes it exactly.
+function enterRoyale() {
+  if (mode === "play" || mode === "swoop") save();
+  try {
+    const prev = JSON.parse(localStorage.getItem("omen.courier") || "{}");
+    const typed = document.getElementById("mp-name").value.trim().slice(0, 16);
+    localStorage.setItem("omen.courier", JSON.stringify({ ...prev, name: courier.name || typed || prev.name || "", look: courier.look }));
+  } catch {
+    /* storage blocked: the venue asks for a name */
+  }
+  const q = new URLSearchParams(location.search);
+  q.set("royale", "1");
+  location.href = `./expo.html?${q}`;
+}
+document.getElementById("royale-enter").onclick = enterRoyale;
+document.getElementById("royale-hud").onclick = enterRoyale;
+
 requestAnimationFrame(frame);
 ui.hideLoading();
 // Final Block: "Only humans play OMEN" comes before the title.
-humanGate().then(() => ui.showTitle(!!load(), {
+humanGate().then(() => {
+  // Verified humans wear the avatar the server randomized for them once (persists across refreshes and devices).
+  if (human.current?.look) {
+    courier.look = { ...courier.look, ...human.current.look };
+    setLook(courier.look);
+  }
+  ui.showTitle(!!load(), {
   onJoin: (friends) => openCreator(friends),
   onContinue: () => {
     rememberCourier();
     ui.hideTitle();
     startGame(false);
   },
-}));
+  });
+});
 
 // Test hook for automated playtests
 window.__omen = {
@@ -1594,6 +1620,7 @@ window.__omen = {
   },
   mumbai,
   booths,
+  enterRoyale,
   stand(worldPos, faceWorld) {
     mover.dir.copy(worldPos).normalize();
     mover.fwd.copy(tangentToward(mover.dir, faceWorld.clone().normalize()));
